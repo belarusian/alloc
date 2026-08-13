@@ -1,0 +1,1 @@
+"""alloc.config — configuration management."""
