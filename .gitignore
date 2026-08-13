@@ -27,3 +27,4 @@ model_comparison_results/
 .idea/
 .vscode/
 .DS_Store
+trajectories/
