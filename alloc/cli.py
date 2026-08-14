@@ -320,6 +320,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose (DEBUG-level) logging",
     )
 
+    # --- Dashboard publishing ---
+    parser.add_argument(
+        "--publish-dashboard",
+        action="store_true",
+        help="Generate HTML health dashboard after workflow completes",
+    )
+    parser.add_argument(
+        "--dashboard-output",
+        type=str,
+        default="dashboard.html",
+        help="Output HTML file path for dashboard (default: dashboard.html)",
+    )
+    parser.add_argument(
+        "--dashboard-sync",
+        action="store_true",
+        help="Push generated dashboard HTML to gh-pages branch",
+    )
+
     return parser
 
 
@@ -598,6 +616,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Print results ---
     print_results(result)
+
+    # --- Dashboard publishing ---
+    if args.publish_dashboard:
+        try:
+            from alloc.lib.dashboard import crawl_package
+            from alloc.lib.publish_dashboard import generate_html, publish
+
+            logger.info("Generating health dashboard...")
+            metadata = crawl_package("alloc", "tests")
+            html = generate_html(metadata.__dict__)
+            publish(html, output_path=args.dashboard_output, sync=args.dashboard_sync)
+            logger.info(
+                "Dashboard published to %s",
+                args.dashboard_output,
+            )
+        except Exception as exc:
+            logger.error("Dashboard generation failed: %s", exc, exc_info=True)
 
     # --- Exit code ---
     if result.status != "success":
