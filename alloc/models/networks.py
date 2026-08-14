@@ -526,3 +526,135 @@ class ActorCriticNetworks:
             allocation = allocation / allocation.sum()
 
         return allocation
+
+    # ------------------------------------------------------------------
+    # Action sampling
+    # ------------------------------------------------------------------
+
+    def _sample_action(
+        self,
+        state: np.ndarray,
+        explore: bool = False,
+        noise_scale: float = 0.1,
+    ) -> np.ndarray:
+        """Sample an action from the actor, optionally with exploration noise.
+
+        Parameters
+        ----------
+        state : np.ndarray
+            Market observation, shape ``(input_dim,)`` or ``(1, input_dim)``.
+        explore : bool
+            If ``True``, add Gaussian noise for exploration.
+        noise_scale : float
+            Standard deviation of the exploration noise.
+
+        Returns
+        -------
+        np.ndarray
+            Clamped allocation vector of length *num_assets*.
+        """
+        action = self.get_allocation(state, add_noise=explore, noise_scale=noise_scale)
+        # Clamp to [0, 1]
+        action = np.clip(action, 0.0, 1.0)
+        return action
+
+    # ------------------------------------------------------------------
+    # Training step methods
+    # ------------------------------------------------------------------
+
+    def update_critic(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_states: np.ndarray,
+        dones: np.ndarray | None = None,
+    ) -> float:
+        """Perform one gradient step on the critic network.
+
+        Minimises the MSE between the critic's Q-value estimate and the
+        Bellman target computed from the target actor/critic pair.
+
+        Parameters
+        ----------
+        states : np.ndarray
+            Batch of states, shape ``(batch, input_dim)``.
+        actions : np.ndarray
+            Batch of actions, shape ``(batch, num_assets)``.
+        rewards : np.ndarray
+            Batch of rewards, shape ``(batch,)``.
+        next_states : np.ndarray
+            Batch of next states, shape ``(batch, input_dim)``.
+        dones : np.ndarray, optional
+            Batch of done flags, shape ``(batch,)``.  If ``None``,
+            assumes no episode terminated.
+
+        Returns
+        -------
+        float
+            The critic loss (MSE) after the update.
+        """
+        if dones is None:
+            dones = np.zeros_like(rewards)
+
+        # Convert to tensorflow tensors for gradient tape compatibility
+        s = tf.convert_to_tensor(states, dtype=tf.float32)
+        a = tf.convert_to_tensor(actions, dtype=tf.float32)
+        r = tf.convert_to_tensor(rewards, dtype=tf.float32)
+        ns = tf.convert_to_tensor(next_states, dtype=tf.float32)
+        d = tf.convert_to_tensor(dones, dtype=tf.float32)
+
+        with tf.GradientTape() as tape:
+            # Target Q-values from target networks
+            next_actions = self.actor_target(ns, training=False)
+            target_q = tf.squeeze(self.critic_target(
+                [ns, next_actions], training=False
+            ), axis=-1)
+
+            # Bellman target
+            targets = r + (1.0 - d) * self.gamma * target_q
+
+            # Current Q-values
+            current_q = tf.squeeze(self.critic([s, a], training=True), axis=-1)
+
+            critic_loss = tf.reduce_mean(tf.square(current_q - targets))
+
+        grads = tape.gradient(critic_loss, self.critic.trainable_weights)
+        self.critic_optimizer.apply_gradients(
+            zip(grads, self.critic.trainable_weights)
+        )
+
+        return float(critic_loss)
+
+    def update_actor(
+        self,
+        states: np.ndarray,
+    ) -> float:
+        """Perform one gradient step on the actor network.
+
+        Maximises the critic's Q-value estimate for actions produced by
+        the actor (i.e. gradient ascent on Q via the actor's outputs).
+
+        Parameters
+        ----------
+        states : np.ndarray
+            Batch of states, shape ``(batch, input_dim)``.
+
+        Returns
+        -------
+        float
+            The actor loss (negative mean Q-value) after the update.
+        """
+        s = tf.convert_to_tensor(states, dtype=tf.float32)
+
+        with tf.GradientTape() as tape:
+            actions = self.actor(s, training=True)
+            q_values = tf.squeeze(self.critic([s, actions], training=False), axis=-1)
+            actor_loss = -tf.reduce_mean(q_values)
+
+        grads = tape.gradient(actor_loss, self.actor.trainable_weights)
+        self.actor_optimizer.apply_gradients(
+            zip(grads, self.actor.trainable_weights)
+        )
+
+        return float(actor_loss)
