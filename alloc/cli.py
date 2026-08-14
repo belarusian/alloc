@@ -436,6 +436,21 @@ def print_results(result: "WorkflowResult") -> None:
     if alloc:
         logger.info("Recommended allocation: %s", alloc)
 
+    # Recommended trades
+    trades = best.recommended_trades
+    if trades:
+        logger.info("Recommended trades:")
+        for trade in trades:
+            ticker = trade.get("ticker", "?")
+            action = trade.get("action", "hold").upper()
+            alloc_w = trade.get("allocation", 0.0)
+            change = trade.get("change", 0.0)
+            sign = "+" if change >= 0 else ""
+            logger.info(
+                "  %-8s %s  alloc=%.4f  change=%s%.4f",
+                ticker, action, alloc_w, sign, change,
+            )
+
     # Concentration
     conc = result.concentration
     if conc:
