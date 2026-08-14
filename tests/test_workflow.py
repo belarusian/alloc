@@ -492,3 +492,48 @@ class TestConcentrationMetrics:
         metrics = WorkflowRunner._concentration_metrics(trials)
         expected_hhi = 0.6**2 + 0.3**2 + 0.1**2  # 0.36 + 0.09 + 0.01 = 0.46
         assert metrics["herfindahl"] == pytest.approx(expected_hhi)
+
+
+# ---------------------------------------------------------------------------
+# TrainingConfig validation tests (edge cases)
+# ---------------------------------------------------------------------------
+
+class TestTrainingConfigValidation:
+    """Tests for TrainingConfig __post_init__ validation."""
+
+    def test_empty_tickers_raises_value_error(self) -> None:
+        """Empty tickers list raises ValueError with meaningful message."""
+        with pytest.raises(ValueError, match="Tickers list is empty"):
+            TrainingConfig(tickers=[], positions={"AAPL": 50000.0})
+
+    def test_empty_positions_raises_value_error(self) -> None:
+        """Empty positions dict raises ValueError with meaningful message."""
+        with pytest.raises(ValueError, match="Positions dictionary is empty"):
+            TrainingConfig(tickers=["AAPL"], positions={})
+
+    def test_zero_position_value_raises_value_error(self) -> None:
+        """Zero position value raises ValueError with meaningful message."""
+        with pytest.raises(ValueError, match="Position value for 'AAPL' is 0"):
+            TrainingConfig(tickers=["AAPL"], positions={"AAPL": 0.0})
+
+    def test_negative_position_value_raises_value_error(self) -> None:
+        """Negative position value raises ValueError with meaningful message."""
+        with pytest.raises(ValueError, match="Position value for 'AAPL' is -100"):
+            TrainingConfig(tickers=["AAPL"], positions={"AAPL": -100.0})
+
+    def test_valid_config_does_not_raise(self) -> None:
+        """Valid config with positive positions does not raise."""
+        cfg = TrainingConfig(
+            tickers=["AAPL", "GOOGL"],
+            positions={"AAPL": 50000.0, "GOOGL": 50000.0},
+        )
+        assert cfg.tickers == ["AAPL", "GOOGL"]
+        assert cfg.positions == {"AAPL": 50000.0, "GOOGL": 50000.0}
+
+    def test_mixed_valid_invalid_positions_raises(self) -> None:
+        """When one position is invalid, ValueError identifies the bad ticker."""
+        with pytest.raises(ValueError, match="Position value for 'META' is -50"):
+            TrainingConfig(
+                tickers=["AAPL", "META"],
+                positions={"AAPL": 50000.0, "META": -50.0},
+            )

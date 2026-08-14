@@ -320,6 +320,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose (DEBUG-level) logging",
     )
 
+    # --- Dashboard publishing ---
+    parser.add_argument(
+        "--publish-dashboard",
+        action="store_true",
+        help="Generate HTML health dashboard after workflow completes",
+    )
+    parser.add_argument(
+        "--dashboard-output",
+        type=str,
+        default="dashboard.html",
+        help="Output HTML file path for dashboard (default: dashboard.html)",
+    )
+    parser.add_argument(
+        "--dashboard-sync",
+        action="store_true",
+        help="Push generated dashboard HTML to gh-pages branch",
+    )
+
     return parser
 
 
@@ -378,7 +396,41 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
     -------
     TrainingConfig
         Fully populated configuration object.
+
+    Raises
+    ------
+    ValueError
+        If tickers list is empty, positions contain zero/negative values,
+        or positions JSON is invalid.
     """
+    # Validate tickers list is not empty
+    if not args.ticker_list:
+        raise ValueError(
+            "Tickers list is empty. Provide at least one ticker via --tickers."
+        )
+
+    # Validate positions is a non-empty dict
+    if not isinstance(args.positions_values, dict):
+        type_name = type(args.positions_values).__name__
+        raise ValueError(
+            f"Positions must be a JSON object (dict), got {type_name}. "
+            "Use --positions-values with valid JSON."
+        )
+
+    if not args.positions_values:
+        raise ValueError(
+            "Positions dictionary is empty. "
+            "Provide at least one position via --positions-values."
+        )
+
+    # Validate no zero or negative position values
+    for ticker, value in args.positions_values.items():
+        if value <= 0:
+            raise ValueError(
+                f"Position value for '{ticker}' is {value}. "
+                "All position values must be strictly positive."
+            )
+
     return TrainingConfig(
         tickers=args.ticker_list,
         positions=args.positions_values,
@@ -405,15 +457,37 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
 def print_results(result: "WorkflowResult") -> None:
     """Print workflow results in a structured, human-readable format.
 
+    Handles empty workflow results gracefully by logging an informative
+    message instead of crashing.
+
     Parameters
     ----------
     result : WorkflowResult
         The result returned by :meth:`WorkflowRunner.run`.
     """
     best = result.best_trial
+
+    # Handle missing best_trial
     if best is None:
         logger.warning("No best trial in results")
         return
+
+    # Handle placeholder/empty best_trial (iteration=0 means no real trial ran)
+    if best.iteration == 0 and not best.allocation:
+        logger.warning(
+            "Workflow completed but no valid trial results were produced. "
+            "Status: %s",
+            result.status,
+        )
+        return
+
+    # Handle empty trials list (log warning but still show best_trial if valid)
+    if not result.trials:
+        logger.warning(
+            "Workflow completed with no trials recorded. "
+            "Status: %s. Showing best_trial from result.",
+            result.status,
+        )
 
     logger.info("=" * 60)
     logger.info("WORKFLOW COMPLETE")
@@ -542,6 +616,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Print results ---
     print_results(result)
+
+    # --- Dashboard publishing ---
+    if args.publish_dashboard:
+        try:
+            from alloc.lib.dashboard import crawl_package
+            from alloc.lib.publish_dashboard import generate_html, publish
+
+            logger.info("Generating health dashboard...")
+            metadata = crawl_package("alloc", "tests")
+            html = generate_html(metadata.__dict__)
+            publish(html, output_path=args.dashboard_output, sync=args.dashboard_sync)
+            logger.info(
+                "Dashboard published to %s",
+                args.dashboard_output,
+            )
+        except Exception as exc:
+            logger.error("Dashboard generation failed: %s", exc, exc_info=True)
 
     # --- Exit code ---
     if result.status != "success":
