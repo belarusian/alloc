@@ -36,6 +36,9 @@ class ReplayBuffer:
     ----------
     capacity : int
         Maximum number of transitions to retain.
+    rng : np.random.Generator, optional
+        NumPy random generator for reproducible sampling.
+        Defaults to ``np.random.default_rng()``.
 
     Example
     -------
@@ -44,14 +47,28 @@ class ReplayBuffer:
     >>> states, actions, rewards, next_states = buf.sample(batch_size=64)
     """
 
-    def __init__(self, capacity: int) -> None:
-        """Initialise the buffer with *capacity* slots."""
+    def __init__(
+        self, capacity: int, rng: np.random.Generator | None = None
+    ) -> None:
+        """Initialise the buffer with *capacity* slots.
+
+        Parameters
+        ----------
+        capacity : int
+            Maximum number of transitions to retain.
+        rng : np.random.Generator, optional
+            NumPy random generator for reproducible sampling.
+            Defaults to ``np.random.default_rng()``.
+        """
         if capacity <= 0:
             raise ValueError(f"capacity must be > 0, got {capacity}")
         self._buffer: deque[
             tuple[np.ndarray, np.ndarray, float, np.ndarray]
         ] = deque(maxlen=capacity)
         self._capacity = capacity
+        self.rng: np.random.Generator = (
+            rng if rng is not None else np.random.default_rng()
+        )
         logger.info("ReplayBuffer initialised with capacity=%d", capacity)
 
     def add(
@@ -74,6 +91,11 @@ class ReplayBuffer:
         next_state : np.ndarray
             Observation at time *t+1*.
         """
+        if len(self._buffer) == self._capacity:
+            logger.debug(
+                "ReplayBuffer full (capacity=%d), overwriting oldest entry",
+                self._capacity,
+            )
         self._buffer.append((state, action, float(reward), next_state))
 
     def sample(
@@ -107,7 +129,7 @@ class ReplayBuffer:
                 f"batch_size={batch_size} exceeds buffer length={len(self)}"
             )
 
-        indices = np.random.choice(len(self), size=batch_size, replace=False)
+        indices = self.rng.choice(len(self), size=batch_size, replace=False)
 
         states = np.stack([self._buffer[i][0] for i in indices])
         actions = np.stack([self._buffer[i][1] for i in indices])
