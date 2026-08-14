@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,6 +20,7 @@ import numpy as np
 from alloc.config.settings import Settings
 from alloc.lib.cache import DiskCache
 from alloc.lib.client import PolygonClient
+from alloc.models import data as data_module
 from alloc.models.networks import ActorCriticNetworks
 from alloc.models.portfolio import Portfolio, calculate_portfolio_reward
 
@@ -656,7 +656,7 @@ def main(argv: list[str] | None = None) -> None:
         critic_lr=args.critic_lr,
         tau=args.tau,
         min_cash_allocation=args.min_cash,
-        replay_capacity=args.replay_capacity,
+        buffer_capacity=args.replay_capacity,
     )
 
     # Initialize runner
@@ -664,7 +664,7 @@ def main(argv: list[str] | None = None) -> None:
         tickers=args.tickers,
         initial_value=args.initial_value,
         networks=networks,
-        data_pipeline=sys.modules["alloc.models.data"],
+        data_pipeline=data_module,
         client=client,
         transaction_cost=args.transaction_cost,
         risk_aversion=args.risk_aversion,
