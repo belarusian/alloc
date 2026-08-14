@@ -149,3 +149,110 @@ class TestReplayBufferLen:
         for _ in range(20):
             buf.add(np.array([0.0]), np.array([0.0]), 0.0, np.array([0.0]))
         assert len(buf) == 5
+
+
+class TestReplayBufferRng:
+    """Tests for TICKET-030: np.random.Generator integration."""
+
+    def test_default_rng_is_generator(self) -> None:
+        """Default rng should be a np.random.Generator instance."""
+        buf = ReplayBuffer(capacity=10)
+        assert isinstance(buf.rng, np.random.Generator)
+
+    def test_custom_rng_is_preserved(self) -> None:
+        """A user-provided rng should be stored as-is."""
+        custom_rng = np.random.default_rng(seed=42)
+        buf = ReplayBuffer(capacity=10, rng=custom_rng)
+        assert buf.rng is custom_rng
+
+    def test_reproducible_sampling_with_seed(self) -> None:
+        """Two buffers with the same seed should produce identical samples."""
+        rng = np.random.default_rng(seed=123)
+        buf1 = ReplayBuffer(capacity=100, rng=rng)
+        rng = np.random.default_rng(seed=123)
+        buf2 = ReplayBuffer(capacity=100, rng=rng)
+
+        for i in range(20):
+            buf1.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+            buf2.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+
+        s1, a1, r1, ns1 = buf1.sample(batch_size=5)
+        s2, a2, r2, ns2 = buf2.sample(batch_size=5)
+
+        np.testing.assert_array_equal(r1, r2)
+
+    def test_sample_uses_rng_choice_not_np_random(self) -> None:
+        """sample() must use self.rng.choice, not np.random.choice."""
+        custom_rng = np.random.default_rng(seed=99)
+        buf = ReplayBuffer(capacity=10, rng=custom_rng)
+        for i in range(5):
+            buf.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+        # Should not raise — self.rng.choice exists and works
+        _, _, rewards, _ = buf.sample(batch_size=3)
+        assert len(rewards) == 3
+
+
+class TestReplayBufferDebugLogging:
+    """Tests for TICKET-031: DEBUG logging when buffer is full."""
+
+    def test_debug_log_when_overwriting(self, caplog) -> None:
+        """A DEBUG message should be emitted when the buffer is full."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        buf = ReplayBuffer(capacity=3)
+        for i in range(3):
+            buf.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+        # Buffer is now full; next add should trigger debug log
+        buf.add(
+            np.array([99.0]),
+            np.array([99.0]),
+            99.0,
+            np.array([100.0]),
+        )
+        debug_messages = [
+            r for r in caplog.records if r.levelno == logging.DEBUG
+        ]
+        assert len(debug_messages) >= 1
+        assert "overwriting oldest entry" in debug_messages[-1].message
+
+    def test_no_debug_log_before_full(self, caplog) -> None:
+        """No DEBUG overwrite message when buffer is not yet full."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        buf = ReplayBuffer(capacity=10)
+        for i in range(5):
+            buf.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+        debug_messages = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG
+            and "overwriting" in r.message
+        ]
+        assert len(debug_messages) == 0
