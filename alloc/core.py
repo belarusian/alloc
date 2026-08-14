@@ -891,8 +891,73 @@ def create_trainer(conservative: bool = False) -> Callable[..., dict[str, Any]]:
 
         # Final allocation
         allocation: list[float] = []
-        if results.get("allocation_history"):
-            allocation = results["allocation_history"][-1].tolist()
+        allocation_history = results.get("allocation_history", [])
+        if allocation_history:
+            last_alloc = allocation_history[-1]
+            if isinstance(last_alloc, dict):
+                allocation = (
+                    [last_alloc.get(t, 0.0) for t in tickers]
+                    + [last_alloc.get("cash", 0.0)]
+                )
+            else:
+                if hasattr(last_alloc, "tolist"):
+                    allocation = last_alloc.tolist()
+                else:
+                    allocation = list(last_alloc)
+
+        # Derive recommended_trades from allocation_history
+        recommended_trades: list[dict] | None = None
+        if len(allocation_history) >= 2:
+            prev_alloc = allocation_history[-2]
+            curr_alloc = allocation_history[-1]
+            if isinstance(prev_alloc, dict) and isinstance(curr_alloc, dict):
+                recommended_trades = []
+                for t in tickers:
+                    prev_w = prev_alloc.get(t, 0.0)
+                    curr_w = curr_alloc.get(t, 0.0)
+                    change = curr_w - prev_w
+                    if abs(change) < 1e-6:
+                        action = "hold"
+                    elif change > 0:
+                        action = "buy"
+                    else:
+                        action = "sell"
+                    recommended_trades.append({
+                        "ticker": t,
+                        "action": action,
+                        "allocation": round(curr_w, 6),
+                        "change": round(change, 6),
+                    })
+                # Include cash
+                prev_cash = prev_alloc.get("cash", 0.0)
+                curr_cash = curr_alloc.get("cash", 0.0)
+                cash_change = curr_cash - prev_cash
+                if abs(cash_change) < 1e-6:
+                    cash_action = "hold"
+                elif cash_change > 0:
+                    cash_action = "buy"
+                else:
+                    cash_action = "sell"
+                recommended_trades.append({
+                    "ticker": "cash",
+                    "action": cash_action,
+                    "allocation": round(curr_cash, 6),
+                    "change": round(cash_change, 6),
+                })
+        elif len(allocation_history) == 1:
+            # Only one allocation — derive from final_holdings
+            final_holdings = results.get("final_holdings", {})
+            if final_holdings:
+                recommended_trades = []
+                for t in tickers:
+                    shares = final_holdings.get(t, 0)
+                    action = "buy" if shares > 0 else "hold"
+                    recommended_trades.append({
+                        "ticker": t,
+                        "action": action,
+                        "allocation": 0.0,
+                        "change": 0.0,
+                    })
 
         return {
             "sharpe_ratio": sharpe_ratio,
@@ -901,6 +966,7 @@ def create_trainer(conservative: bool = False) -> Callable[..., dict[str, Any]]:
             "model_roi": model_roi,
             "buyhold_roi": buyhold_roi,
             "allocation": allocation,
+            "recommended_trades": recommended_trades,
             "model_path": None,
             "results_path": None,
             "update": update_iterations,

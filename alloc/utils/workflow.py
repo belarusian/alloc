@@ -95,6 +95,11 @@ class TrainingTrial:
         Buy-and-hold return on investment.
     allocation : list[float]
         Final allocation weights (one per ticker, plus cash).
+    recommended_trades : list[dict] | None
+        List of recommended trade actions derived from the final
+        allocation step.  Each dict has keys ``ticker``, ``action``
+        (``"buy"`` / ``"sell"`` / ``"hold"``), ``allocation`` (target
+        weight), and ``change`` (delta vs. previous allocation).
     model_path : str | None
         Path to the saved model file.
     results_path : str | None
@@ -109,6 +114,7 @@ class TrainingTrial:
     model_roi: float | None = None
     buyhold_roi: float | None = None
     allocation: list[float] = field(default_factory=list)
+    recommended_trades: list[dict] | None = None
     model_path: str | None = None
     results_path: str | None = None
 
@@ -267,6 +273,7 @@ class WorkflowRunner:
             model_roi=result.get("model_roi"),
             buyhold_roi=result.get("buyhold_roi"),
             allocation=result.get("allocation", []),
+            recommended_trades=result.get("recommended_trades"),
             model_path=result.get("model_path"),
             results_path=result.get("results_path"),
         )
