@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def serialize_results(results: dict[str, Any]) -> dict[str, Any]:
+def serialize_results(results: Any) -> Any:
     """Recursively convert numpy arrays to Python lists for JSON serialisation.
 
     Parameters
@@ -123,7 +123,7 @@ def load_results(path: str, mode: str = "backtest") -> dict[str, Any]:
         raise FileNotFoundError(f"Results file not found: {filepath}")
 
     with open(filepath) as fh:
-        return json.load(fh)
+        return cast(dict[str, Any], json.load(fh))
 
 
 # ---------------------------------------------------------------------------
