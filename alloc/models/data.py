@@ -1,11 +1,4 @@
-"""Market data fetching and state vector construction for alloc.
-
-Provides functions to fetch multi-frequency price data from Polygon.io
-and build fixed-dimension state vectors for RL portfolio allocation.
-
-All public functions accept a ``client`` parameter (dependency injection)
-and use ``logging`` instead of ``print``.
-"""
+"""Market data fetching and state vector construction for alloc."""
 
 from __future__ import annotations
 
@@ -15,16 +8,9 @@ from typing import Any
 
 import numpy as np
 
-from alloc.lib.cache import cache_historical, cache_latest_prices
-
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Multi-frequency data fetching
-# ---------------------------------------------------------------------------
-
-@cache_historical
 def get_multi_asset_data(
     tickers: list[str],
     client: Any,
@@ -197,7 +183,6 @@ def build_state_vector(
 # Latest prices
 # ---------------------------------------------------------------------------
 
-@cache_latest_prices
 def fetch_latest_prices(
     tickers: list[str],
     client: Any,
