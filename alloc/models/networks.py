@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import random
 from collections import deque
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import tensorflow as tf
@@ -194,14 +194,14 @@ class CashLayer(layers.Layer):
         Passed to :class:`keras.layers.Layer`.
     """
 
-    def __init__(self, min_cash: float = 0.0, **kwargs):
+    def __init__(self, min_cash: float = 0.0, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.min_cash = float(min_cash)
 
     def call(self, allocations: tf.Tensor) -> tf.Tensor:
         return _calculate_cash(allocations, self.min_cash)
 
-    def get_config(self):
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
         config.update({"min_cash": self.min_cash})
         return config
@@ -219,14 +219,14 @@ class CashLambda(layers.Lambda):
         Passed to :class:`keras.layers.Lambda`.
     """
 
-    def __init__(self, min_cash: float = 0.0, **kwargs):
+    def __init__(self, min_cash: float = 0.0, **kwargs: Any) -> None:
         self._min_cash = float(min_cash)
         super().__init__(
             function=lambda x: _calculate_cash(x, self._min_cash),
             **kwargs,
         )
 
-    def get_config(self):
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
         config.update({"min_cash": self._min_cash})
         return config
@@ -525,7 +525,7 @@ class ActorCriticNetworks:
             )
             allocation = allocation / allocation.sum()
 
-        return allocation
+        return allocation.astype(np.float64)
 
     # ------------------------------------------------------------------
     # Action sampling
@@ -556,7 +556,7 @@ class ActorCriticNetworks:
         action = self.get_allocation(state, add_noise=explore, noise_scale=noise_scale)
         # Clamp to [0, 1]
         action = np.clip(action, 0.0, 1.0)
-        return action
+        return action.astype(np.float64)
 
     # ------------------------------------------------------------------
     # Training step methods
