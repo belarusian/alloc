@@ -251,7 +251,8 @@ def crawl_package(
 
     # Collect all .py files (skip __pycache__)
     py_files = sorted(
-        p for p in pkg.rglob("*.py") if "__pycache__" not in p.parts
+        p for p in pkg.rglob("*.py")
+        if "__pycache__" not in p.parts and ".venv" not in p.parts
     )
 
     modules: list[ModuleStats] = []

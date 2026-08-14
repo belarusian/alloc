@@ -104,8 +104,8 @@ def _signal_badge(signal: str) -> str:
     )
 
 
-def _module_row(mod: dict[str, Any]) -> str:
-    """Return an HTML table row for a single module.
+def _module_card(mod: dict[str, Any]) -> str:
+    """Return an HTML module card div.
 
     Parameters
     ----------
@@ -115,46 +115,45 @@ def _module_row(mod: dict[str, Any]) -> str:
     Returns
     -------
     str
-        HTML ``<tr>`` element.
+        HTML ``<div>`` card element.
     """
     path = _escape_html(mod.get("path", "?"))
     lines = mod.get("lines", 0)
     functions = mod.get("functions", 0)
     classes = mod.get("classes", 0)
     tests = mod.get("test_count", 0)
-    has_doc = mod.get("has_docstring", False)
     signals = mod.get("signals", [])
-
-    # Docstring indicator
-    doc_icon = "✅" if has_doc else "❌"
-
-    # Test coverage bar
-    test_pct = min(tests * 10, 100) if tests > 0 else 0
-    test_bar = (
-        f'<div class="test-bar">'
-        f'<div class="test-bar-fill" style="width:{test_pct}%"></div>'
-        f"</div>"
-    )
 
     # Signal badges
     badges_html = " ".join(_signal_badge(s) for s in signals)
-    signals_cell = badges_html if badges_html else '<span class="clear">✅ clear</span>'
+    if badges_html:
+        status_class = "mod-signals"
+        status_html = badges_html
+    else:
+        status_class = "clear"
+        status_html = "✅ clear"
+
+    # Border color based on signals
+    border_color = "#22c55e" if not signals else "#c0392b"
 
     return (
-        f"<tr>"
-        f"<td class=\"mod-path\">{path}</td>"
-        f"<td class=\"mod-stat\">{lines}</td>"
-        f"<td class=\"mod-stat\">{functions}</td>"
-        f"<td class=\"mod-stat\">{classes}</td>"
-        f"<td class=\"mod-stat\">{doc_icon}</td>"
-        f"<td class=\"mod-tests\">{tests} {test_bar}</td>"
-        f"<td class=\"mod-signals\">{signals_cell}</td>"
-        f"</tr>"
+        f'<div class="mod-card" style="border-color: {border_color};">'
+        f'<div class="mod-header">'
+        f'<span class="mod-name">{path}</span>'
+        f'<span class="{status_class}">{status_html}</span>'
+        f'</div>'
+        f'<div class="mod-meta">'
+        f'<span>CLASSES: {classes}</span>'
+        f'<span>FUNCS: {functions}</span>'
+        f'<span>LINES: {lines}</span>'
+        f'<span>TESTS: {tests}</span>'
+        f'</div>'
+        f'</div>'
     )
 
 
-def _summary_card(title: str, value: str, icon: str = "") -> str:
-    """Return an HTML summary card div.
+def _summary_card(title: str, value: str, icon: str = "", card_class: str = "") -> str:
+    """Return an HTML stat card div.
 
     Parameters
     ----------
@@ -164,23 +163,25 @@ def _summary_card(title: str, value: str, icon: str = "") -> str:
         Card value (e.g. "18").
     icon : str
         Optional emoji icon.
+    card_class : str
+        Additional CSS class (e.g. "warn", "err").
 
     Returns
     -------
     str
         HTML ``<div>`` card element.
     """
+    cls = f"stat-card {card_class}" if card_class else "stat-card"
     return (
-        f'<div class="summary-card">'
-        f"<div class=\"card-icon\">{icon}</div>"
-        f"<div class=\"card-value\">{_escape_html(value)}</div>"
-        f"<div class=\"card-title\">{_escape_html(title)}</div>"
+        f'<div class="{cls}">'
+        f"<div class=\"stat-value\">{_escape_html(value)}</div>"
+        f"<div class=\"stat-label\">{_escape_html(title)}</div>"
         f"</div>"
     )
 
 
 def _signal_summary_cards(signals_summary: dict[str, int]) -> str:
-    """Return HTML cards for each signal type count.
+    """Return HTML stat cards for each signal type count.
 
     Parameters
     ----------
@@ -193,22 +194,18 @@ def _signal_summary_cards(signals_summary: dict[str, int]) -> str:
         HTML fragment with signal summary cards.
     """
     if not signals_summary:
-        return '<div class="summary-card"><div class="card-value">0</div>' \
-               '<div class="card-title">All Clear ✅</div></div>'
+        return '<div class="stat-card"><div class="stat-value">0</div>' \
+               '<div class="stat-label">All Clear</div></div>'
 
     cards = []
     for key in sorted(signals_summary.keys()):
         count = signals_summary[key]
-        bg, fg = SIGNAL_COLORS.get(key, ("#e9ecef", "#495057"))
-        icon = SIGNAL_ICONS.get(key, "⚠️")
         label = SIGNAL_LABELS.get(key, key)
         cards.append(
-            f'<div class="summary-card signal-card" '
-            f'style="background:{bg};color:{fg}">'
-            f"<div class=\"card-icon\">{icon}</div>"
-            f"<div class=\"card-value\">{count}</div>"
-            f"<div class=\"card-title\">{label}</div>"
-            f"</div>"
+            f'<div class="stat-card warn">'
+            f'<div class="stat-value">{count}</div>'
+            f'<div class="stat-label">{label}</div>'
+            f'</div>'
         )
     return "\n".join(cards)
 
@@ -242,9 +239,6 @@ def generate_html(metadata: dict[str, Any]) -> str:
     signals_summary = metadata.get("signals_summary", {})
     modules = metadata.get("modules", [])
 
-    # Module rows
-    module_rows = "\n".join(_module_row(m) for m in modules)
-
     # Summary cards
     summary_cards = "\n".join([
         _summary_card("Modules", str(total_modules), "📁"),
@@ -260,218 +254,305 @@ def generate_html(metadata: dict[str, Any]) -> str:
     # Timestamp
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    # Module cards (grid layout, inspired by personal-index)
+    module_cards = "\n".join(_module_card(m) for m in modules)
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{pkg} — Health Dashboard</title>
+<title>{pkg} // HEALTH DASHBOARD</title>
 <style>
-/* ── Reset & Base ───────────────────────────────────── */
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
-    background: #f5f7fa;
-    color: #212529;
-    line-height: 1.6;
-    padding: 1rem;
+/* ============================================================
+   LIGHT TERMINAL AESTHETIC — inspired by personal-index
+   Background: #fafbfc | Accent: #2d7d46 | Text: #1a1a2e
+   Monospace font, grid cards, section headers
+   ============================================================ */
+
+* {{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }}
 
-/* ── Layout ─────────────────────────────────────────── */
+html, body {{
+    background: #fafbfc;
+    color: #1a1a2e;
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', Courier, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+}}
+
 .dashboard {{
     max-width: 1200px;
     margin: 0 auto;
+    padding: 2rem 1.5rem;
 }}
+
+/* ---- HEADER ---- */
 .header {{
-    text-align: center;
-    padding: 2rem 1rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-}}
-.header h1 {{ font-size: 1.75rem; font-weight: 700; }}
-.header .timestamp {{ font-size: 0.85rem; opacity: 0.8; margin-top: 0.5rem; }}
-
-/* ── Summary Cards ──────────────────────────────────── */
-.summary-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}}
-.summary-card {{
-    background: white;
-    border-radius: 10px;
-    padding: 1.25rem;
-    text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    transition: transform 0.15s ease;
-}}
-.summary-card:hover {{ transform: translateY(-2px); }}
-.summary-card .card-icon {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
-.summary-card .card-value {{ font-size: 1.75rem; font-weight: 700; }}
-.summary-card .card-title {{ font-size: 0.8rem; text-transform: uppercase;
-.signal-card {{ font-weight: 600; }}
-
-/* ── Signal Legend ──────────────────────────────────── */
-.signal-legend {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}}
-.signal-legend h3 {{ width: 100%; font-size: 0.9rem; margin-bottom: 0.5rem; }}
-.legend-item {{
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.85rem;
+    border-bottom: 2px solid #2d7d46;
+    padding-bottom: 1rem;
+    margin-bottom: 2rem;
 }}
 
-/* ── Module Table ───────────────────────────────────── */
-.table-wrapper {{
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    overflow-x: auto;
-}}
-table {{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-}}
-thead th {{
-    background: #f8f9fa;
-    padding: 0.75rem 1rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.8rem;
+.header h1 {{
+    font-size: 1.4rem;
+    font-weight: 400;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 2px solid #e9ecef;
-    position: sticky;
-    top: 0;
-}}
-tbody tr {{ border-bottom: 1px solid #f0f0f0; }}
-tbody tr:hover {{ background: #f8f9fa; }}
-td {{ padding: 0.65rem 1rem; vertical-align: middle; }}
-.mod-path {{ font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85rem; color: #495057; }}
-.mod-stat {{ text-align: center; font-variant-numeric: tabular-nums; }}
-.mod-tests {{ min-width: 100px; }}
-
-/* ── Test Bar ───────────────────────────────────────── */
-.test-bar {{
-    height: 6px;
-    background: #e9ecef;
-    border-radius: 3px;
-    margin-top: 4px;
-    overflow: hidden;
-}}
-.test-bar-fill {{
-    height: 100%;
-    background: #28a745;
-    border-radius: 3px;
-    transition: width 0.3s ease;
+    color: #2d7d46;
 }}
 
-/* ── Badges ─────────────────────────────────────────── */
-.badge {{
-    display: inline-block;
-    padding: 0.2em 0.6em;
-    border-radius: 4px;
+.header .prompt {{
+    color: #5a7a6a;
+    font-size: 0.8rem;
+    margin-top: 0.4rem;
+}}
+
+.header .prompt::before {{
+    content: "> ";
+    color: #2d7d46;
+}}
+
+/* ---- SECTION HEADERS ---- */
+.section {{
+    margin-bottom: 2.5rem;
+}}
+
+.section-title {{
+    font-size: 0.9rem;
+    font-weight: 400;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #2d7d46;
+    border-bottom: 1px solid #d0e0d8;
+    padding-bottom: 0.35rem;
+    margin-bottom: 1rem;
+}}
+
+.section-title::before {{
+    content: "## ";
+    color: #5a7a6a;
+}}
+
+/* ---- SURFACE STATS ---- */
+.stats-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.65rem;
+}}
+
+.stat-card {{
+    border: 1px solid #d0e0d8;
+    padding: 0.7rem;
+    text-align: center;
+    background: #fff;
+    transition: border-color 0.2s;
+}}
+
+.stat-card:hover {{
+    border-color: #2d7d46;
+}}
+
+.stat-value {{
+    font-size: 1.6rem;
+    color: #2d7d46;
+    font-weight: 400;
+}}
+
+.stat-label {{
+    font-size: 0.65rem;
+    color: #5a7a6a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 0.2rem;
+}}
+
+.stat-card.warn .stat-value {{
+    color: #c47a20;
+}}
+
+.stat-card.err .stat-value {{
+    color: #c0392b;
+}}
+
+/* ---- SIGNAL SUMMARY ROW ---- */
+.signal-summary {{
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
     font-size: 0.75rem;
+    color: #5a7a6a;
+}}
+
+.signal-summary span {{
+    color: #2d7d46;
     font-weight: 600;
-    margin: 0.15em;
+}}
+
+/* ---- MODULE GRID ---- */
+.module-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.55rem;
+}}
+
+.mod-card {{
+    border: 1px solid #d0e0d8;
+    padding: 0.55rem 0.75rem;
+    background: #fff;
+    transition: background 0.2s, border-color 0.2s;
+}}
+
+.mod-card:hover {{
+    background: #f4f9f6;
+    border-color: #2d7d46;
+}}
+
+.mod-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+    gap: 0.5rem;
+}}
+
+.mod-name {{
+    font-size: 0.82rem;
+    color: #2d7d46;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}}
+
+.mod-status {{
+    font-size: 0.65rem;
+    font-weight: 400;
+    letter-spacing: 1px;
     white-space: nowrap;
 }}
-.clear {{ color: #28a745; font-weight: 600; font-size: 0.85rem; }}
 
-/* ── Search / Filter ────────────────────────────────── */
+.mod-meta {{
+    display: flex;
+    gap: 0.7rem;
+    font-size: 0.65rem;
+    color: #5a7a6a;
+    flex-wrap: wrap;
+}}
+
+.mod-meta span::before {{
+    color: #8aab9a;
+}}
+
+/* ---- SIGNAL BADGES ---- */
+.badge {{
+    display: inline-block;
+    padding: 0.1em 0.45em;
+    border-radius: 2px;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0.1em 0.1em;
+    white-space: nowrap;
+}}
+
+.badge-s1 {{ background: #fff3cd; color: #856404; }}
+.badge-s2 {{ background: #ffecb5; color: #6d5a00; }}
+.badge-s3 {{ background: #e8e8e8; color: #383d41; }}
+.badge-s4 {{ background: #f8d7da; color: #721c24; }}
+
+.clear {{ color: #2d7d46; font-weight: 600; font-size: 0.72rem; }}
+
+/* ---- CONTROLS ---- */
 .controls {{
     display: flex;
-    gap: 0.75rem;
+    gap: 0.65rem;
     margin-bottom: 1rem;
     flex-wrap: wrap;
 }}
+
 .controls input, .controls select {{
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid #c0d0c8;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 0.82rem;
     outline: none;
+    background: #fff;
 }}
+
 .controls input:focus, .controls select:focus {{
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+    border-color: #2d7d46;
 }}
+
 .controls input {{ flex: 1; min-width: 200px; }}
 
-/* ── Footer ─────────────────────────────────────────── */
+/* ---- FOOTER ---- */
 .footer {{
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #d0e0d8;
+    color: #8aab9a;
+    font-size: 0.7rem;
     text-align: center;
-    padding: 1.5rem;
-    font-size: 0.8rem;
-    color: #868e96;
+    letter-spacing: 1px;
 }}
 
-/* ── Responsive ─────────────────────────────────────── */
+/* ---- SCROLLBAR ---- */
+::-webkit-scrollbar {{ width: 5px; }}
+::-webkit-scrollbar-track {{ background: #fafbfc; }}
+::-webkit-scrollbar-thumb {{ background: #c0d0c8; }}
+::-webkit-scrollbar-thumb:hover {{ background: #8aab9a; }}
+
+/* ---- RESPONSIVE ---- */
 @media (max-width: 768px) {{
-    body {{ padding: 0.5rem; }}
-    .header h1 {{ font-size: 1.3rem; }}
-    .summary-grid {{ grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }}
-    .summary-card {{ padding: 0.75rem; }}
-    .summary-card .card-value {{ font-size: 1.3rem; }}
-    thead th {{ font-size: 0.7rem; padding: 0.5rem; }}
-    td {{ padding: 0.5rem; font-size: 0.8rem; }}
-    .mod-path {{ font-size: 0.75rem; word-break: break-all; }}
-}}
-
-@media (max-width: 480px) {{
-    .summary-grid {{ grid-template-columns: repeat(2, 1fr); }}
-    .controls {{ flex-direction: column; }}
-    .controls input {{ min-width: unset; }}
+    .dashboard {{ padding: 1rem; }}
+    .header h1 {{ font-size: 1.1rem; }}
+    .stats-grid {{ grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.4rem; }}
+    .module-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
 <body>
 <div class="dashboard">
-    <!-- Header -->
-    <div class="header">
-        <h1>📊 {pkg} Health Dashboard</h1>
-        <div class="timestamp">Generated: {now}</div>
-    </div>
 
-    <!-- Summary Cards -->
-    <div class="summary-grid">
+<!-- HEADER -->
+<div class="header">
+    <h1>{pkg} // HEALTH DASHBOARD</h1>
+    <div class="prompt">codebase projection — {total_modules} modules scanned · {now}</div>
+</div>
+
+<!-- 1. SURFACE STATS -->
+<div class="section">
+    <div class="section-title">Surface Stats</div>
+    <div class="stats-grid">
         {summary_cards}
     </div>
+</div>
 
-    <!-- Signal Summary -->
-    <div class="summary-grid">
-        {signal_cards}
+<!-- 2. SIGNAL SUMMARY -->
+<div class="section">
+    <div class="section-title">Health Signals</div>
+    {signal_cards}
+    <div class="signal-summary">
+        <div>🧪 S1 — No Tests: <span>{signals_summary.get("S1", 0)}</span></div>
+        <div>📦 S2 — Oversized: <span>{signals_summary.get("S2", 0)}</span></div>
+        <div>💀 S3 — Dead Code: <span>{signals_summary.get("S3", 0)}</span></div>
+        <div>🔧 S4 — Lint Errors: <span>{signals_summary.get("S4", 0)}</span></div>
     </div>
+</div>
 
-    <!-- Signal Legend -->
-    <div class="signal-legend">
-        <h3>Signal Legend</h3>
-        <div class="legend-item">🧪 <strong>S1</strong> — No Tests</div>
-        <div class="legend-item">📦 <strong>S2</strong> — Oversized
-            (&gt;200 lines &amp; &gt;15 funcs)</div>
-        <div class="legend-item">💀 <strong>S3</strong> — Dead Code (0 internal imports)</div>
-        <div class="legend-item">🔧 <strong>S4</strong> — Lint/Type Errors</div>
-    </div>
-
-    <!-- Controls -->
+<!-- 3. CONTROLS -->
+<div class="section">
+    <div class="section-title">Module Map</div>
     <div class="controls">
-        <input type="text" id="search" placeholder="Search modules..." oninput="filterTable()">
-        <select id="signalFilter" onchange="filterTable()">
-            <option value="all">All Signals</option>
+        <input type="text" id="search" placeholder="Search modules..." oninput="filterModules()">
+        <select id="signalFilter" onchange="filterModules()">
+            <option value="all">All Status</option>
             <option value="S1">S1 — No Tests</option>
             <option value="S2">S2 — Oversized</option>
             <option value="S3">S3 — Dead Code</option>
@@ -479,44 +560,27 @@ td {{ padding: 0.65rem 1rem; vertical-align: middle; }}
             <option value="clear">✅ Clear Only</option>
         </select>
     </div>
-
-    <!-- Module Table -->
-    <div class="table-wrapper">
-        <table id="moduleTable">
-            <thead>
-                <tr>
-                    <th>Module</th>
-                    <th>Lines</th>
-                    <th>Funcs</th>
-                    <th>Classes</th>
-                    <th>Doc</th>
-                    <th>Tests</th>
-                    <th>Signals</th>
-                </tr>
-            </thead>
-            <tbody>
-                {module_rows}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-        alloc health dashboard · {total_modules} modules ·
-        {total_lines:,} lines · {total_functions} functions
+    <div class="module-grid" id="moduleGrid">
+        {module_cards}
     </div>
 </div>
 
+<!-- FOOTER -->
+<div class="footer">
+    {pkg} health dashboard · {total_modules} modules · {total_lines:,} lines · {total_functions} functions
+</div>
+</div>
+
 <script>
-function filterTable() {{
+function filterModules() {{
     const query = document.getElementById("search").value.toLowerCase();
     const signalFilter = document.getElementById("signalFilter").value;
-    const rows = document.querySelectorAll("#moduleTable tbody tr");
+    const cards = document.querySelectorAll("#moduleGrid .mod-card");
 
-    rows.forEach(row => {{
-        const path = row.querySelector(".mod-path").textContent.toLowerCase();
-        const signals = row.querySelector(".mod-signals").textContent;
-        const matchesSearch = path.includes(query);
+    cards.forEach(card => {{
+        const name = card.querySelector(".mod-name").textContent.toLowerCase();
+        const signals = card.querySelector(".mod-signals").textContent;
+        const matchesSearch = name.includes(query);
 
         let matchesSignal = true;
         if (signalFilter === "clear") {{
@@ -525,7 +589,7 @@ function filterTable() {{
             matchesSignal = signals.includes(signalFilter);
         }}
 
-        row.style.display = (matchesSearch && matchesSignal) ? "" : "none";
+        card.style.display = (matchesSearch && matchesSignal) ? "" : "none";
     }});
 }}
 </script>
