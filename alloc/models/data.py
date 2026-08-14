@@ -199,36 +199,36 @@ def get_multi_asset_data(
         formatted = ticker.upper()
         try:
             # --- hourly ---
-            bars = client.get_aggs(
-                ticker=formatted,
+            bars = client.get_aggregate_bars(
+                symbol=formatted,
                 multiplier=1,
                 timespan="hour",
-                from_=hourly_start.strftime("%Y-%m-%d"),
-                to=end_date.strftime("%Y-%m-%d"),
+                from_date=hourly_start.strftime("%Y-%m-%d"),
+                to_date=end_date.strftime("%Y-%m-%d"),
                 limit=5000,
             )
             if bars:
                 result[ticker]["hourly"] = [float(b.close) for b in bars]
 
             # --- daily ---
-            bars = client.get_aggs(
-                ticker=formatted,
+            bars = client.get_aggregate_bars(
+                symbol=formatted,
                 multiplier=1,
                 timespan="day",
-                from_=daily_start.strftime("%Y-%m-%d"),
-                to=end_date.strftime("%Y-%m-%d"),
+                from_date=daily_start.strftime("%Y-%m-%d"),
+                to_date=end_date.strftime("%Y-%m-%d"),
                 limit=5000,
             )
             if bars:
                 result[ticker]["daily"] = [float(b.close) for b in bars]
 
             # --- weekly ---
-            bars = client.get_aggs(
-                ticker=formatted,
+            bars = client.get_aggregate_bars(
+                symbol=formatted,
                 multiplier=1,
                 timespan="week",
-                from_=weekly_start.strftime("%Y-%m-%d"),
-                to=end_date.strftime("%Y-%m-%d"),
+                from_date=weekly_start.strftime("%Y-%m-%d"),
+                to_date=end_date.strftime("%Y-%m-%d"),
                 limit=5000,
             )
             if bars:

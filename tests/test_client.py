@@ -29,8 +29,8 @@ def _mock_method(name: str, return_value) -> MagicMock:
 def mock_rest_client() -> MagicMock:
     """Return a MagicMock standing in for polygon.StocksClient."""
     client = MagicMock()
-    client.get_aggs = _mock_method("get_aggs", {"results": [1, 2, 3]})
-    client.get_ticker_details = _mock_method("get_ticker_details", {"ticker": "AAPL"})
+    client.get_aggregate_bars = _mock_method("get_aggregate_bars", {"results": [1, 2, 3]})
+    client.get_snapshot = _mock_method("get_snapshot", {"ticker": "AAPL"})
     client.get_news = _mock_method("get_news", [{"title": "Breaking"}])
     return client
 
@@ -84,7 +84,7 @@ class TestConstruction:
     def test_accepts_custom_cache_map(
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
-        custom = {"get_aggs": "latest_prices"}
+        custom = {"get_aggregate_bars": "latest_prices"}
         with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache, cache_map=custom)
             assert c._cache_map == custom
@@ -97,31 +97,31 @@ class TestConstruction:
 class TestCaching:
     """Tests that cached methods actually cache."""
 
-    def test_get_aggs_is_cached(self, client: PolygonClient) -> None:
-        """Second call to get_aggs should hit cache, not upstream."""
-        client.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
-        client.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
-        # Underlying client's get_aggs called only once
-        assert client._client.get_aggs.call_count == 1
+    def test_get_aggregate_bars_is_cached(self, client: PolygonClient) -> None:
+        """Second call to get_aggregate_bars should hit cache, not upstream."""
+        client.get_aggregate_bars("AAPL", 1, "day", "2024-01-01", "2024-01-31")
+        client.get_aggregate_bars("AAPL", 1, "day", "2024-01-01", "2024-01-31")
+        # Underlying client's get_aggregate_bars called only once
+        assert client._client.get_aggregate_bars.call_count == 1
 
-    def test_get_ticker_details_is_cached(self, client: PolygonClient) -> None:
-        client.get_ticker_details("AAPL")
-        client.get_ticker_details("AAPL")
-        assert client._client.get_ticker_details.call_count == 1
+    def test_get_snapshot_is_cached(self, client: PolygonClient) -> None:
+        client.get_snapshot("AAPL")
+        client.get_snapshot("AAPL")
+        assert client._client.get_snapshot.call_count == 1
 
     def test_different_args_miss_cache(self, client: PolygonClient) -> None:
-        client.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
-        client.get_aggs("MSFT", 1, "day", "2024-01-01", "2024-01-31")
-        assert client._client.get_aggs.call_count == 2
+        client.get_aggregate_bars("AAPL", 1, "day", "2024-01-01", "2024-01-31")
+        client.get_aggregate_bars("MSFT", 1, "day", "2024-01-01", "2024-01-31")
+        assert client._client.get_aggregate_bars.call_count == 2
 
     def test_disabled_cache_skips_caching(
         self, mock_rest_client: MagicMock, disabled_cache: DiskCache
     ) -> None:
         with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=disabled_cache)
-            c.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
-            c.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
-            assert mock_rest_client.get_aggs.call_count == 2
+            c.get_aggregate_bars("AAPL", 1, "day", "2024-01-01", "2024-01-31")
+            c.get_aggregate_bars("AAPL", 1, "day", "2024-01-01", "2024-01-31")
+            assert mock_rest_client.get_aggregate_bars.call_count == 2
 
 
 # =====================================================================
@@ -152,11 +152,11 @@ class TestProxy:
             return None
 
         bare_client = SimpleNamespace()
-        _noop.__name__ = "get_aggs"
-        bare_client.get_aggs = _noop
+        _noop.__name__ = "get_aggregate_bars"
+        bare_client.get_aggregate_bars = _noop
         _noop2 = _noop
-        _noop2.__name__ = "get_ticker_details"
-        bare_client.get_ticker_details = _noop2
+        _noop2.__name__ = "get_snapshot"
+        bare_client.get_snapshot = _noop2
 
         with patch("alloc.lib.client.StocksClient", return_value=bare_client):
             c = PolygonClient(api_key="k", cache=cache)
@@ -175,16 +175,16 @@ class TestCacheValidProtocol:
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
         """A result with __cache_valid__: False should not be cached."""
-        mock_rest_client.get_ticker_details.return_value = {
+        mock_rest_client.get_snapshot.return_value = {
             "ticker": "AAPL",
             "__cache_valid__": False,
         }
         with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache)
-            r1 = c.get_ticker_details("AAPL")
-            r2 = c.get_ticker_details("AAPL")
+            r1 = c.get_snapshot("AAPL")
+            r2 = c.get_snapshot("AAPL")
             # Called twice — never cached
-            assert mock_rest_client.get_ticker_details.call_count == 2
+            assert mock_rest_client.get_snapshot.call_count == 2
             # Sentinel stripped from return value
             assert "__cache_valid__" not in r1
             assert r1 == {"ticker": "AAPL"}
@@ -202,13 +202,13 @@ class TestApplyCaching:
     ) -> None:
         """If a method in cache_map doesn't exist on StocksClient, skip it."""
         custom_map = {
-            "get_aggs": "historical_data",
+            "get_aggregate_bars": "historical_data",
             "nonexistent_method_xyz": "latest_prices",
         }
         with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache, cache_map=custom_map)
-            # get_aggs should be wrapped
-            assert hasattr(c, "get_aggs")
+            # get_aggregate_bars should be wrapped
+            assert hasattr(c, "get_aggregate_bars")
             # nonexistent_method_xyz should not cause an error
             # and should fall through to __getattr__ (which will raise)
 
@@ -221,8 +221,8 @@ class TestCacheMap:
     """Tests for the CACHE_MAP module constant."""
 
     def test_cache_map_has_expected_keys(self) -> None:
-        assert "get_aggs" in CACHE_MAP
-        assert "get_ticker_details" in CACHE_MAP
+        assert "get_aggregate_bars" in CACHE_MAP
+        assert "get_snapshot" in CACHE_MAP
 
     def test_cache_map_values_are_known_types(self) -> None:
         for v in CACHE_MAP.values():
