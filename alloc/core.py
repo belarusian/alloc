@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -710,3 +710,200 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# TICKET-034 — create_trainer: bridge WorkflowRunner → SimulationRunner
+# ---------------------------------------------------------------------------
+
+
+def create_trainer(conservative: bool = False) -> Callable[..., dict[str, Any]]:
+    """Factory that returns a callable trainer bridging WorkflowRunner to SimulationRunner.
+
+    The returned callable accepts keyword arguments matching the subset of
+    :class:`TrainingConfig` fields that ``WorkflowRunner._run_trial`` passes
+    through, and returns a dict with trial-level metrics suitable for
+    :class:`TrainingTrial` construction.
+
+    Parameters
+    ----------
+    conservative : bool
+        If ``True``, use conservative hyper-parameters (lower learning
+        rates, higher risk aversion).  Defaults to ``False`` (aggressive).
+
+    Returns
+    -------
+    Callable[..., dict]
+        A trainer function accepting tickers, positions, update_iterations,
+        trading_days, batch_size, min_allocation, concentration_penalty,
+        transaction_cost, risk_aversion, min_cash_alloc, target_sharpe,
+        target_value, target_outperformance — and returning a dict with
+        keys: sharpe_ratio, outperformance, final_value, model_roi,
+        buyhold_roi, allocation, model_path, results_path, update.
+    """
+
+    def _trainer(
+        tickers: list[str],
+        positions: dict[str, float],
+        update_iterations: int = 1,
+        trading_days: int = 222,
+        batch_size: int = 22,
+        min_allocation: float = 0.001,
+        concentration_penalty: float = 0.001,
+        transaction_cost: float = 0.0,
+        risk_aversion: float = 0.001,
+        min_cash_alloc: float = 0.05,
+        target_sharpe: float = 2.1,
+        target_value: float = 220_000.0,
+        target_outperformance: float = 15.0,
+    ) -> dict[str, Any]:
+        """Run a single training trial via SimulationRunner.
+
+        Parameters
+        ----------
+        tickers : list[str]
+            Ticker symbols to trade.
+        positions : dict[str, float]
+            Initial dollar-value positions keyed by ticker.
+        update_iterations : int
+            Number of update steps (0 = fresh model each time).
+        trading_days : int
+            Trading days for the simulation window.
+        batch_size : int
+            Replay batch size.
+        min_allocation : float
+            Minimum allocation per asset.
+        concentration_penalty : float
+            Concentration penalty weight.
+        transaction_cost : float
+            Transaction cost fraction.
+        risk_aversion : float
+            Risk aversion weight.
+        min_cash_alloc : float
+            Minimum cash allocation fraction.
+        target_sharpe : float
+            Target Sharpe ratio.
+        target_value : float
+            Target final portfolio value.
+        target_outperformance : float
+            Target outperformance percentage.
+
+        Returns
+        -------
+        dict
+            Trial result dict with keys suitable for TrainingTrial.
+        """
+        # Compute initial value from positions
+        initial_value = sum(positions.values()) if positions else 100_000.0
+
+        # Conservative vs aggressive hyper-parameters
+        if conservative:
+            actor_lr = 0.00005
+            critic_lr = 0.0002
+            gamma = 0.99
+            diversification_weight = 0.1
+        else:
+            actor_lr = 0.0001
+            critic_lr = 0.0005
+            gamma = 0.95
+            diversification_weight = 0.05
+
+        # Compute input dimension
+        n_hourly = 5
+        n_daily = 5
+        n_weekly = 5
+        input_dim = len(tickers) * (n_hourly + n_daily + n_weekly) + len(tickers)
+        num_assets = len(tickers) + 1  # +1 for cash
+
+        # Load settings and build dependencies
+        settings = get_settings()
+        cache = DiskCache(
+            cache_dir=settings.cache_dir,
+            enabled=settings.cache_enabled,
+        )
+        client = PolygonClient(
+            api_key=settings.polygon_api_key,
+            cache=cache,
+        )
+
+        # Build networks
+        networks = ActorCriticNetworks(
+            input_dim=input_dim,
+            num_assets=num_assets,
+            actor_lr=actor_lr,
+            critic_lr=critic_lr,
+            tau=0.01,
+            min_cash_allocation=min_cash_alloc,
+            buffer_capacity=50_000,
+        )
+
+        # Build runner
+        runner = SimulationRunner(
+            tickers=tickers,
+            initial_value=initial_value,
+            networks=networks,
+            data_pipeline=data_module,
+            client=client,
+            transaction_cost=transaction_cost,
+            risk_aversion=risk_aversion,
+            gamma=gamma,
+            tau=0.01,
+            diversification_weight=diversification_weight,
+            concentration_penalty=concentration_penalty,
+            min_cash=min_cash_alloc,
+            batch_size=batch_size,
+            verbose=False,
+        )
+
+        # Run simulation
+        results = runner.run(trading_days=trading_days)
+
+        # Extract metrics
+        final_value = results.get("final_value", initial_value)
+        portfolio_values = results.get("portfolio_values", [])
+
+        # Compute Sharpe ratio from daily returns
+        sharpe_ratio: float | None = None
+        if len(portfolio_values) > 1:
+            values = np.array(portfolio_values, dtype=np.float64)
+            daily_returns = np.diff(values) / np.maximum(values[:-1], 1e-8)
+            if np.std(daily_returns) > 0:
+                sharpe_ratio = float(
+                    np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
+                )
+
+        # Compute ROI
+        model_roi: float | None = None
+        buyhold_roi: float | None = None
+        if initial_value > 0:
+            model_roi = float((final_value - initial_value) / initial_value * 100)
+
+        # Buy-and-hold ROI (from results if available)
+        buyhold_values = results.get("buyhold_values", [])
+        if buyhold_values and len(buyhold_values) > 0:
+            bh_final = buyhold_values[-1]
+            buyhold_roi = float((bh_final - initial_value) / initial_value * 100)
+
+        # Outperformance
+        outperformance: float | None = None
+        if model_roi is not None and buyhold_roi is not None:
+            outperformance = float(model_roi - buyhold_roi)
+
+        # Final allocation
+        allocation: list[float] = []
+        if results.get("allocation_history"):
+            allocation = results["allocation_history"][-1].tolist()
+
+        return {
+            "sharpe_ratio": sharpe_ratio,
+            "outperformance": outperformance,
+            "final_value": final_value,
+            "model_roi": model_roi,
+            "buyhold_roi": buyhold_roi,
+            "allocation": allocation,
+            "model_path": None,
+            "results_path": None,
+            "update": update_iterations,
+        }
+
+    return _trainer
