@@ -11,6 +11,148 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# StateBuilder class
+# ---------------------------------------------------------------------------
+
+class StateBuilder:
+    """Build fixed-dimension state vectors from multi-frequency price data.
+
+    Parameters
+    ----------
+    hourly_window : int
+        Number of hourly bars to include per ticker (default 168 = 1 week).
+    daily_window : int
+        Number of daily bars to include per ticker (default 365 = 1 year).
+    weekly_window : int
+        Number of weekly bars to include per ticker (default 52 = 1 year).
+    """
+
+    def __init__(
+        self,
+        hourly_window: int = 168,
+        daily_window: int = 365,
+        weekly_window: int = 52,
+    ) -> None:
+        self.hourly_window = hourly_window
+        self.daily_window = daily_window
+        self.weekly_window = weekly_window
+
+    def _normalize_window(self, prices: list[float]) -> list[float]:
+        """Normalise *prices* by dividing each by the last price, then subtract 1.
+
+        The result expresses each price as a fractional change relative to
+        the most recent price.  The last element is always ``0.0``.
+
+        Parameters
+        ----------
+        prices : list[float]
+            Raw price series (ordered oldest -> newest).
+
+        Returns
+        -------
+        list[float]
+            Normalised series.  Returns ``[0.0] * len(prices)`` when the
+            last price is zero or the list is empty.
+        """
+        if not prices:
+            return []
+
+        last = prices[-1]
+        if last == 0.0:
+            return [0.0] * len(prices)
+
+        return [(p / last) - 1.0 for p in prices]
+
+    def _pad_window(self, prices: list[float], target_length: int) -> list[float]:
+        """Pad *prices* with leading zeros so the result has *target_length* elements.
+
+        If *prices* already has >= *target_length* elements, only the last
+        *target_length* values are returned (no truncation of the newest data).
+
+        Parameters
+        ----------
+        prices : list[float]
+            Price series (ordered oldest -> newest).
+        target_length : int
+            Desired length of the output window.
+
+        Returns
+        -------
+        list[float]
+            Padded / truncated series of exactly *target_length* elements.
+        """
+        if target_length <= 0:
+            return []
+
+        if len(prices) >= target_length:
+            return prices[-target_length:]
+
+        pad_len = target_length - len(prices)
+        return [0.0] * pad_len + prices
+
+    def build_state(
+        self,
+        price_data: dict[str, dict[str, list[float]]],
+        allocation: list[float],
+    ) -> np.ndarray:
+        """Build a state vector from multi-frequency price data.
+
+        For each ticker the last *N* prices per frequency are taken,
+        normalised (divide by last price minus 1), padded if necessary,
+        and concatenated.  The current allocation percentages are appended
+        at the end.
+
+        Parameters
+        ----------
+        price_data : dict
+            ``{ticker: {"hourly": [float], "daily": [float], "weekly": [float]}}``
+        allocation : list[float]
+            Current portfolio weights (one per ticker).
+
+        Returns
+        -------
+        np.ndarray
+            2-D float64 array of shape ``(1, N)`` where
+            ``N = len(tickers) * (hourly_window + daily_window + weekly_window)
+                + len(allocation)``.
+        """
+        tickers = sorted(price_data.keys())
+        parts: list[float] = []
+
+        for ticker in tickers:
+            freq_data = price_data.get(ticker, {})
+            hourly = freq_data.get("hourly", [])
+            daily = freq_data.get("daily", [])
+            weekly = freq_data.get("weekly", [])
+
+            # Normalise then pad each frequency window
+            parts.extend(
+                self._pad_window(
+                    self._normalize_window(hourly), self.hourly_window
+                )
+            )
+            parts.extend(
+                self._pad_window(
+                    self._normalize_window(daily), self.daily_window
+                )
+            )
+            parts.extend(
+                self._pad_window(
+                    self._normalize_window(weekly), self.weekly_window
+                )
+            )
+
+        # Append allocation
+        parts.extend(allocation)
+
+        return np.array(parts, dtype=np.float64).reshape(1, -1)
+
+
+# ---------------------------------------------------------------------------
+# Legacy function -- kept for backward compatibility
+# ---------------------------------------------------------------------------
+
 def get_multi_asset_data(
     tickers: list[str],
     client: Any,
@@ -26,7 +168,7 @@ def get_multi_asset_data(
     tickers : list[str]
         Ticker symbols to fetch.
     client : Any
-        PolygonClient (or compatible) instance — injected, never a
+        PolygonClient (or compatible) instance -- injected, never a
         module-level singleton.
     end_date : datetime, optional
         End date for the query window.  Defaults to ``datetime.today()``.
@@ -102,7 +244,7 @@ def get_multi_asset_data(
 
 
 # ---------------------------------------------------------------------------
-# State vector construction
+# State vector construction (legacy)
 # ---------------------------------------------------------------------------
 
 def build_state_vector(
