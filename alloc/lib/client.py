@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 # Maps method names to the cache-type string used by settings.get_cache_ttl().
 # Add entries here to enable caching for additional Polygon methods.
 CACHE_MAP: dict[str, str] = {
-    "get_aggs": "historical_data",
-    "get_ticker_details": "ticker_details",
+    "get_aggregate_bars": "historical_data",
+    "get_snapshot": "ticker_details",
 }
 
 

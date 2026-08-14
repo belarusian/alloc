@@ -76,7 +76,7 @@ class TestGetMultiAssetData:
     """Tests for get_multi_asset_data."""
 
     def test_returns_dict_with_ticker_keys(self, mock_client: MagicMock, end_date: datetime) -> None:
-        mock_client.get_aggs.return_value = [_make_bar(100.0)]
+        mock_client.get_aggregate_bars.return_value = [_make_bar(100.0)]
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -84,7 +84,7 @@ class TestGetMultiAssetData:
         assert "AAPL" in result
 
     def test_returns_dict_with_frequency_keys(self, mock_client: MagicMock, end_date: datetime) -> None:
-        mock_client.get_aggs.return_value = [_make_bar(100.0)]
+        mock_client.get_aggregate_bars.return_value = [_make_bar(100.0)]
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -94,7 +94,7 @@ class TestGetMultiAssetData:
 
     def test_hourly_prices_extracted_correctly(self, mock_client: MagicMock, end_date: datetime) -> None:
         bars = [_make_bar(100.0), _make_bar(101.0), _make_bar(102.0)]
-        mock_client.get_aggs.return_value = bars
+        mock_client.get_aggregate_bars.return_value = bars
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -103,7 +103,7 @@ class TestGetMultiAssetData:
 
     def test_daily_prices_extracted_correctly(self, mock_client: MagicMock, end_date: datetime) -> None:
         bars = [_make_bar(200.0), _make_bar(205.0)]
-        mock_client.get_aggs.return_value = bars
+        mock_client.get_aggregate_bars.return_value = bars
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -112,51 +112,51 @@ class TestGetMultiAssetData:
 
     def test_weekly_prices_extracted_correctly(self, mock_client: MagicMock, end_date: datetime) -> None:
         bars = [_make_bar(300.0)]
-        mock_client.get_aggs.return_value = bars
+        mock_client.get_aggregate_bars.return_value = bars
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
         )
         assert result["AAPL"]["weekly"] == [300.0]
 
-    def test_calls_get_aggs_with_correct_timespan_hourly(
+    def test_calls_get_aggregate_bars_with_correct_timespan_hourly(
         self, mock_client: MagicMock, end_date: datetime
     ) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=7, daily_days=30, weekly_weeks=12,
         )
         # First call should be hourly
-        call_args = mock_client.get_aggs.call_args_list[0]
+        call_args = mock_client.get_aggregate_bars.call_args_list[0]
         assert call_args[1]["timespan"] == "hour"
 
-    def test_calls_get_aggs_with_correct_timespan_daily(
+    def test_calls_get_aggregate_bars_with_correct_timespan_daily(
         self, mock_client: MagicMock, end_date: datetime
     ) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=7, daily_days=30, weekly_weeks=12,
         )
         # Second call should be daily
-        call_args = mock_client.get_aggs.call_args_list[1]
+        call_args = mock_client.get_aggregate_bars.call_args_list[1]
         assert call_args[1]["timespan"] == "day"
 
-    def test_calls_get_aggs_with_correct_timespan_weekly(
+    def test_calls_get_aggregate_bars_with_correct_timespan_weekly(
         self, mock_client: MagicMock, end_date: datetime
     ) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=7, daily_days=30, weekly_weeks=12,
         )
         # Third call should be week
-        call_args = mock_client.get_aggs.call_args_list[2]
+        call_args = mock_client.get_aggregate_bars.call_args_list[2]
         assert call_args[1]["timespan"] == "week"
 
     def test_handles_empty_bars(self, mock_client: MagicMock, end_date: datetime) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -166,7 +166,7 @@ class TestGetMultiAssetData:
         assert result["AAPL"]["weekly"] == []
 
     def test_handles_multiple_tickers(self, mock_client: MagicMock, end_date: datetime) -> None:
-        mock_client.get_aggs.return_value = [_make_bar(100.0)]
+        mock_client.get_aggregate_bars.return_value = [_make_bar(100.0)]
         result = get_multi_asset_data(
             tickers=["AAPL", "MSFT"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -175,17 +175,17 @@ class TestGetMultiAssetData:
         assert "MSFT" in result
 
     def test_ticker_uppercased(self, mock_client: MagicMock, end_date: datetime) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         get_multi_asset_data(
             tickers=["aapl"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
         )
         # First call's ticker arg should be uppercased
-        call_args = mock_client.get_aggs.call_args_list[0]
-        assert call_args[1]["ticker"] == "AAPL"
+        call_args = mock_client.get_aggregate_bars.call_args_list[0]
+        assert call_args[1]["symbol"] == "AAPL"
 
     def test_defaults_end_date_to_today(self, mock_client: MagicMock) -> None:
-        mock_client.get_aggs.return_value = []
+        mock_client.get_aggregate_bars.return_value = []
         with patch("alloc.models.data.datetime") as mock_dt:
             mock_dt.today.return_value = datetime(2024, 1, 1)
             mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
@@ -194,18 +194,18 @@ class TestGetMultiAssetData:
                 hourly_days=1, daily_days=1, weekly_weeks=1,
             )
             # Should have been called
-            assert mock_client.get_aggs.called
+            assert mock_client.get_aggregate_bars.called
 
     def test_error_on_ticker_does_not_crash_others(
         self, mock_client: MagicMock, end_date: datetime
     ) -> None:
         """If one ticker raises, others should still be processed."""
         def side_effect(*args, **kwargs):
-            if kwargs.get("ticker") == "BAD":
+            if kwargs.get("symbol") == "BAD":
                 raise RuntimeError("API error")
             return [_make_bar(100.0)]
 
-        mock_client.get_aggs.side_effect = side_effect
+        mock_client.get_aggregate_bars.side_effect = side_effect
         result = get_multi_asset_data(
             tickers=["GOOD", "BAD"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
@@ -217,13 +217,13 @@ class TestGetMultiAssetData:
 
     def test_uses_injected_client_not_singleton(self, mock_client: MagicMock, end_date: datetime) -> None:
         """Verify the function uses the passed client, not a module-level singleton."""
-        mock_client.get_aggs.return_value = [_make_bar(42.0)]
+        mock_client.get_aggregate_bars.return_value = [_make_bar(42.0)]
         result = get_multi_asset_data(
             tickers=["AAPL"], client=mock_client, end_date=end_date,
             hourly_days=1, daily_days=1, weekly_weeks=1,
         )
         assert result["AAPL"]["hourly"] == [42.0]
-        assert mock_client.get_aggs.called
+        assert mock_client.get_aggregate_bars.called
 
 
 # =====================================================================
