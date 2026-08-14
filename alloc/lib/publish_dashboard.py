@@ -5,6 +5,8 @@ a standalone, responsive HTML page with inline CSS/JS.  Signals S1–S4 are
 colour-coded by severity.  An optional ``--sync`` CLI flag pushes the
 generated HTML to a ``gh-pages`` branch for GitHub Pages hosting.
 
+Supports single-package view and multi-package comparison mode.
+
 Usage
 -----
     from alloc.lib.publish_dashboard import generate_html, publish
@@ -15,6 +17,9 @@ Usage
 Or from CLI::
 
     python -m alloc.lib.publish_dashboard [--json PATH] [--output PATH] [--sync]
+
+    python -m alloc.lib.publish_dashboard \
+        --compare alloc/docs_dashboard_metadata.json new-trader.json
 
 Signals
 -------
@@ -81,157 +86,136 @@ def _escape_html(text: str) -> str:
 
 
 def _signal_badge(signal: str) -> str:
-    """Return an HTML span for a single signal badge.
-
-    Parameters
-    ----------
-    signal : str
-        Signal string like ``"S1:no_tests"`` or ``"S4:lint_errors(3)"``.
-
-    Returns
-    -------
-    str
-        HTML ``<span>`` element with colour-coded styling.
-    """
+    """Return an HTML span for a single signal badge."""
     key = signal.split(":")[0]
     label = signal.split(":", 1)[1] if ":" in signal else key
-    bg, fg = SIGNAL_COLORS.get(key, ("#e9ecef", "#495057"))
     icon = SIGNAL_ICONS.get(key, "⚠️")
     return (
-        f'<span class="badge badge-{key.lower()}" '
-        f'style="background:{bg};color:{fg}">'
+        f'<span class="badge badge-{key.lower()}">'
         f"{icon} {_escape_html(label)}</span>"
     )
 
 
-def _module_row(mod: dict[str, Any]) -> str:
-    """Return an HTML table row for a single module.
-
-    Parameters
-    ----------
-    mod : dict
-        One module entry from the dashboard metadata.
-
-    Returns
-    -------
-    str
-        HTML ``<tr>`` element.
-    """
+def _module_card(mod: dict[str, Any]) -> str:
+    """Return an HTML module card div."""
     path = _escape_html(mod.get("path", "?"))
     lines = mod.get("lines", 0)
     functions = mod.get("functions", 0)
     classes = mod.get("classes", 0)
     tests = mod.get("test_count", 0)
-    has_doc = mod.get("has_docstring", False)
     signals = mod.get("signals", [])
 
-    # Docstring indicator
-    doc_icon = "✅" if has_doc else "❌"
-
-    # Test coverage bar
-    test_pct = min(tests * 10, 100) if tests > 0 else 0
-    test_bar = (
-        f'<div class="test-bar">'
-        f'<div class="test-bar-fill" style="width:{test_pct}%"></div>'
-        f"</div>"
-    )
-
-    # Signal badges
     badges_html = " ".join(_signal_badge(s) for s in signals)
-    signals_cell = badges_html if badges_html else '<span class="clear">✅ clear</span>'
+    if badges_html:
+        status_html = badges_html
+    else:
+        status_html = '<span class="clear">clear</span>'
+
+    border_color = "#22c55e" if not signals else "#c0392b"
 
     return (
-        f"<tr>"
-        f"<td class=\"mod-path\">{path}</td>"
-        f"<td class=\"mod-stat\">{lines}</td>"
-        f"<td class=\"mod-stat\">{functions}</td>"
-        f"<td class=\"mod-stat\">{classes}</td>"
-        f"<td class=\"mod-stat\">{doc_icon}</td>"
-        f"<td class=\"mod-tests\">{tests} {test_bar}</td>"
-        f"<td class=\"mod-signals\">{signals_cell}</td>"
-        f"</tr>"
+        f'<div class="mod-card" style="border-color: {border_color};">'
+        f'<div class="mod-name">{path}</div>'
+        f'<div class="mod-signals">{status_html}</div>'
+        f'<div class="mod-meta">'
+        f'<span>CLASSES: {classes}</span>'
+        f'<span>FUNCS: {functions}</span>'
+        f'<span>LINES: {lines}</span>'
+        f'<span>TESTS: {tests}</span>'
+        f'</div>'
+        f'</div>'
     )
 
 
-def _summary_card(title: str, value: str, icon: str = "") -> str:
-    """Return an HTML summary card div.
-
-    Parameters
-    ----------
-    title : str
-        Card title (e.g. "Modules").
-    value : str
-        Card value (e.g. "18").
-    icon : str
-        Optional emoji icon.
-
-    Returns
-    -------
-    str
-        HTML ``<div>`` card element.
-    """
+def _summary_card(title: str, value: str, card_class: str = "") -> str:
+    """Return an HTML stat card div."""
+    cls = f"stat-card {card_class}" if card_class else "stat-card"
     return (
-        f'<div class="summary-card">'
-        f"<div class=\"card-icon\">{icon}</div>"
-        f"<div class=\"card-value\">{_escape_html(value)}</div>"
-        f"<div class=\"card-title\">{_escape_html(title)}</div>"
-        f"</div>"
+        f'<div class="{cls}">'
+        f'<div class="stat-value">{_escape_html(value)}</div>'
+        f'<div class="stat-label">{_escape_html(title)}</div>'
+        f'</div>'
     )
 
 
 def _signal_summary_cards(signals_summary: dict[str, int]) -> str:
-    """Return HTML cards for each signal type count.
-
-    Parameters
-    ----------
-    signals_summary : dict
-        Mapping of signal key (S1-S4) to count.
-
-    Returns
-    -------
-    str
-        HTML fragment with signal summary cards.
-    """
+    """Return HTML stat cards for each signal type count."""
     if not signals_summary:
-        return '<div class="summary-card"><div class="card-value">0</div>' \
-               '<div class="card-title">All Clear ✅</div></div>'
+        return '<div class="stat-card"><div class="stat-value">0</div>' \
+               '<div class="stat-label">All Clear</div></div>'
 
     cards = []
     for key in sorted(signals_summary.keys()):
         count = signals_summary[key]
-        bg, fg = SIGNAL_COLORS.get(key, ("#e9ecef", "#495057"))
-        icon = SIGNAL_ICONS.get(key, "⚠️")
         label = SIGNAL_LABELS.get(key, key)
         cards.append(
-            f'<div class="summary-card signal-card" '
-            f'style="background:{bg};color:{fg}">'
-            f"<div class=\"card-icon\">{icon}</div>"
-            f"<div class=\"card-value\">{count}</div>"
-            f"<div class=\"card-title\">{label}</div>"
-            f"</div>"
+            f'<div class="stat-card warn">'
+            f'<div class="stat-value">{count}</div>'
+            f'<div class="stat-label">{label}</div>'
+            f'</div>'
         )
     return "\n".join(cards)
 
 
-def generate_html(metadata: dict[str, Any]) -> str:
-    """Generate a standalone HTML dashboard page from metadata.
+def _comparison_section(packages: list[dict[str, Any]]) -> str:
+    """Generate a comparison table between multiple packages."""
+    rows = []
+    metrics = [
+        ("Modules", "total_modules"),
+        ("Lines", "total_lines"),
+        ("Functions", "total_functions"),
+        ("Classes", "total_classes"),
+        ("Tests", "total_tests"),
+        ("S1: No Tests", "signals_summary.S1"),
+        ("S2: Oversized", "signals_summary.S2"),
+        ("S3: Dead Code", "signals_summary.S3"),
+        ("S4: Lint Errors", "signals_summary.S4"),
+    ]
 
-    The output is a self-contained HTML document with inline CSS and JS —
-    no external dependencies required.  Works on mobile and desktop via
-    responsive CSS Grid/Flexbox layout.
+    headers = "".join(
+        f'<th>{_escape_html(pkg.get("package", "?"))}</th>'
+        for pkg in packages
+    )
+
+    for label, key in metrics:
+        cells = []
+        for pkg in packages:
+            if "." in key:
+                parent, child = key.split(".")
+                val = pkg.get(parent, {}).get(child, 0)
+            else:
+                val = pkg.get(key, 0)
+            formatted = f"{val:,}" if isinstance(val, int) and val > 100 else str(val)
+            cells.append(f'<td class="comp-val">{formatted}</td>')
+
+        cells.insert(0, f'<td class="comp-label">{label}</td>')
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    return (
+        f'<div class="section">'
+        f'<div class="section-title">Shape Comparison</div>'
+        f'<div class="comp-table-wrapper">'
+        f'<table class="comp-table">'
+        f'<thead><tr><th class="comp-label">Metric</th>{headers}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody>'
+        f'</table>'
+        f'</div>'
+        f'</div>'
+    )
+
+
+def generate_html(
+    metadata: dict[str, Any],
+    compare_with: list[dict[str, Any]] | None = None,
+) -> str:
+    """Generate a standalone HTML dashboard page from metadata.
 
     Parameters
     ----------
     metadata : dict
         The deserialised JSON output of :func:`dashboard.generate_json`.
-        Must contain keys: ``package``, ``total_modules``, ``total_lines``,
-        ``total_functions``, ``total_classes``, ``total_tests``,
-        ``signals_summary``, ``modules``.
-
-    Returns
-    -------
-    str
-        Complete HTML document string.
+    compare_with : list of dict, optional
+        Additional package metadata dicts to compare against.
     """
     pkg = _escape_html(metadata.get("package", "unknown"))
     total_modules = metadata.get("total_modules", 0)
@@ -242,281 +226,420 @@ def generate_html(metadata: dict[str, Any]) -> str:
     signals_summary = metadata.get("signals_summary", {})
     modules = metadata.get("modules", [])
 
-    # Module rows
-    module_rows = "\n".join(_module_row(m) for m in modules)
+    module_cards = "\n".join(_module_card(m) for m in modules)
 
-    # Summary cards
     summary_cards = "\n".join([
-        _summary_card("Modules", str(total_modules), "📁"),
-        _summary_card("Lines", f"{total_lines:,}", "📝"),
-        _summary_card("Functions", str(total_functions), "⚙️"),
-        _summary_card("Classes", str(total_classes), "🏗️"),
-        _summary_card("Tests", str(total_tests), "🧪"),
+        _summary_card("Modules", str(total_modules)),
+        _summary_card("Lines", f"{total_lines:,}"),
+        _summary_card("Functions", str(total_functions)),
+        _summary_card("Classes", str(total_classes)),
+        _summary_card("Tests", str(total_tests)),
     ])
 
-    # Signal summary
     signal_cards = _signal_summary_cards(signals_summary)
 
-    # Timestamp
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # Build comparison section if multiple packages
+    comparison_html = ""
+    all_packages = [metadata] + (compare_with or [])
+    if len(all_packages) > 1:
+        comparison_html = _comparison_section(all_packages)
+
+    # Build additional package sections
+    other_sections = ""
+    for other in (compare_with or []):
+        other_pkg = _escape_html(other.get("package", "unknown"))
+        other_modules = other.get("modules", [])
+        other_cards = "\n".join(_module_card(m) for m in other_modules)
+        other_total_m = other.get("total_modules", 0)
+
+        other_sections += f"""
+    <div class="section">
+        <div class="section-title">{other_pkg} — Module Map ({other_total_m} modules)</div>
+        <div class="module-grid">
+            {other_cards}
+        </div>
+    </div>
+"""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{pkg} — Health Dashboard</title>
+<title>{pkg} // HEALTH DASHBOARD</title>
 <style>
-/* ── Reset & Base ───────────────────────────────────── */
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
-    background: #f5f7fa;
-    color: #212529;
+/* ============================================================
+   LIGHT TERMINAL AESTHETIC — inspired by personal-index
+   Background: #fafbfc | Accent: #2d7d46 | Text: #1a1a2e
+   Monospace font, grid cards, section headers
+   ============================================================ */
+
+* {{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}}
+
+html, body {{
+    background: #fafbfc;
+    color: #1a1a2e;
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', Courier, monospace;
+    font-size: 15px;
     line-height: 1.6;
-    padding: 1rem;
+    min-height: 100vh;
 }}
 
-/* ── Layout ─────────────────────────────────────────── */
 .dashboard {{
-    max-width: 1200px;
+    max-width: 1300px;
     margin: 0 auto;
+    padding: 2rem 2rem;
 }}
+
+/* ---- HEADER ---- */
 .header {{
-    text-align: center;
-    padding: 2rem 1rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
+    border-bottom: 2px solid #2d7d46;
+    padding-bottom: 1.2rem;
+    margin-bottom: 2.5rem;
 }}
-.header h1 {{ font-size: 1.75rem; font-weight: 700; }}
-.header .timestamp {{ font-size: 0.85rem; opacity: 0.8; margin-top: 0.5rem; }}
 
-/* ── Summary Cards ──────────────────────────────────── */
-.summary-grid {{
+.header h1 {{
+    font-size: 1.8rem;
+    font-weight: 400;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #2d7d46;
+}}
+
+.header .prompt {{
+    color: #5a7a6a;
+    font-size: 0.95rem;
+    margin-top: 0.5rem;
+}}
+
+.header .prompt::before {{
+    content: "> ";
+    color: #2d7d46;
+}}
+
+/* ---- SECTION HEADERS ---- */
+.section {{
+    margin-bottom: 3rem;
+}}
+
+.section-title {{
+    font-size: 1.1rem;
+    font-weight: 400;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #2d7d46;
+    border-bottom: 1px solid #d0e0d8;
+    padding-bottom: 0.4rem;
+    margin-bottom: 1.2rem;
+}}
+
+.section-title::before {{
+    content: "## ";
+    color: #5a7a6a;
+}}
+
+/* ---- SURFACE STATS ---- */
+.stats-grid {{
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.8rem;
 }}
-.summary-card {{
-    background: white;
-    border-radius: 10px;
-    padding: 1.25rem;
+
+.stat-card {{
+    border: 1px solid #d0e0d8;
+    padding: 0.9rem;
     text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    transition: transform 0.15s ease;
-}}
-.summary-card:hover {{ transform: translateY(-2px); }}
-.summary-card .card-icon {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
-.summary-card .card-value {{ font-size: 1.75rem; font-weight: 700; }}
-.summary-card .card-title {{ font-size: 0.8rem; text-transform: uppercase;
-.signal-card {{ font-weight: 600; }}
-
-/* ── Signal Legend ──────────────────────────────────── */
-.signal-legend {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}}
-.signal-legend h3 {{ width: 100%; font-size: 0.9rem; margin-bottom: 0.5rem; }}
-.legend-item {{
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.85rem;
+    background: #fff;
+    transition: border-color 0.2s;
 }}
 
-/* ── Module Table ───────────────────────────────────── */
-.table-wrapper {{
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+.stat-card:hover {{
+    border-color: #2d7d46;
+}}
+
+.stat-value {{
+    font-size: 2rem;
+    color: #2d7d46;
+    font-weight: 400;
+}}
+
+.stat-label {{
+    font-size: 0.8rem;
+    color: #5a7a6a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 0.25rem;
+}}
+
+.stat-card.warn .stat-value {{
+    color: #c47a20;
+}}
+
+.stat-card.err .stat-value {{
+    color: #c0392b;
+}}
+
+/* ---- SIGNAL SUMMARY ROW ---- */
+.signal-summary {{
+    display: flex;
+    gap: 1.2rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.9rem;
+    color: #5a7a6a;
+}}
+
+.signal-summary span {{
+    color: #2d7d46;
+    font-weight: 600;
+}}
+
+/* ---- COMPARISON TABLE ---- */
+.comp-table-wrapper {{
     overflow-x: auto;
+    border: 1px solid #d0e0d8;
+    background: #fff;
 }}
-table {{
+
+.comp-table {{
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.9rem;
 }}
-thead th {{
-    background: #f8f9fa;
-    padding: 0.75rem 1rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.8rem;
+
+.comp-table th {{
+    background: #f4f9f6;
+    padding: 0.8rem 1rem;
+    text-align: center;
+    font-size: 0.95rem;
+    font-weight: 400;
+    letter-spacing: 1px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 2px solid #e9ecef;
-    position: sticky;
-    top: 0;
+    color: #2d7d46;
+    border-bottom: 2px solid #d0e0d8;
 }}
-tbody tr {{ border-bottom: 1px solid #f0f0f0; }}
-tbody tr:hover {{ background: #f8f9fa; }}
-td {{ padding: 0.65rem 1rem; vertical-align: middle; }}
-.mod-path {{ font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85rem; color: #495057; }}
-.mod-stat {{ text-align: center; font-variant-numeric: tabular-nums; }}
-.mod-tests {{ min-width: 100px; }}
 
-/* ── Test Bar ───────────────────────────────────────── */
-.test-bar {{
-    height: 6px;
-    background: #e9ecef;
-    border-radius: 3px;
-    margin-top: 4px;
+.comp-table th.comp-label {{
+    text-align: left;
+}}
+
+.comp-table td {{
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #f0f4f2;
+    font-size: 0.95rem;
+}}
+
+.comp-table td.comp-label {{
+    color: #5a7a6a;
+    font-weight: 400;
+}}
+
+.comp-table td.comp-val {{
+    text-align: center;
+    color: #1a1a2e;
+}}
+
+.comp-table tr:hover {{
+    background: #f9fbfa;
+}}
+
+/* ---- MODULE GRID ---- */
+.module-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.6rem;
+}}
+
+.mod-card {{
+    border: 1px solid #d0e0d8;
+    padding: 0.65rem 0.85rem;
+    background: #fff;
+    transition: background 0.2s, border-color 0.2s;
+}}
+
+.mod-card:hover {{
+    background: #f4f9f6;
+    border-color: #2d7d46;
+}}
+
+.mod-name {{
+    font-size: 0.95rem;
+    color: #2d7d46;
+    margin-bottom: 0.3rem;
     overflow: hidden;
-}}
-.test-bar-fill {{
-    height: 100%;
-    background: #28a745;
-    border-radius: 3px;
-    transition: width 0.3s ease;
-}}
-
-/* ── Badges ─────────────────────────────────────────── */
-.badge {{
-    display: inline-block;
-    padding: 0.2em 0.6em;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    margin: 0.15em;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }}
-.clear {{ color: #28a745; font-weight: 600; font-size: 0.85rem; }}
 
-/* ── Search / Filter ────────────────────────────────── */
+.mod-signals {{
+    margin-bottom: 0.3rem;
+    min-height: 1.4em;
+}}
+
+.mod-status {{
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}}
+
+.mod-meta {{
+    display: flex;
+    gap: 0.8rem;
+    font-size: 0.78rem;
+    color: #5a7a6a;
+    flex-wrap: wrap;
+}}
+
+.mod-meta span::before {{
+    color: #8aab9a;
+}}
+
+/* ---- SIGNAL BADGES ---- */
+.badge {{
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 2px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0.1em 0.1em;
+    white-space: nowrap;
+}}
+
+.badge-s1 {{ background: #fff3cd; color: #856404; }}
+.badge-s2 {{ background: #ffecb5; color: #6d5a00; }}
+.badge-s3 {{ background: #e8e8e8; color: #383d41; }}
+.badge-s4 {{ background: #f8d7da; color: #721c24; }}
+
+.clear {{ color: #2d7d46; font-weight: 600; font-size: 0.82rem; }}
+
+/* ---- CONTROLS ---- */
 .controls {{
     display: flex;
     gap: 0.75rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.2rem;
     flex-wrap: wrap;
 }}
+
 .controls input, .controls select {{
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid #c0d0c8;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 0.95rem;
     outline: none;
+    background: #fff;
 }}
+
 .controls input:focus, .controls select:focus {{
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+    border-color: #2d7d46;
 }}
-.controls input {{ flex: 1; min-width: 200px; }}
 
-/* ── Footer ─────────────────────────────────────────── */
+.controls input {{ flex: 1; min-width: 220px; }}
+
+/* ---- FOOTER ---- */
 .footer {{
+    margin-top: 2.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid #d0e0d8;
+    color: #8aab9a;
+    font-size: 0.82rem;
     text-align: center;
-    padding: 1.5rem;
-    font-size: 0.8rem;
-    color: #868e96;
+    letter-spacing: 1px;
 }}
 
-/* ── Responsive ─────────────────────────────────────── */
+/* ---- SCROLLBAR ---- */
+::-webkit-scrollbar {{ width: 6px; }}
+::-webkit-scrollbar-track {{ background: #fafbfc; }}
+::-webkit-scrollbar-thumb {{ background: #c0d0c8; }}
+::-webkit-scrollbar-thumb:hover {{ background: #8aab9a; }}
+
+/* ---- RESPONSIVE ---- */
 @media (max-width: 768px) {{
-    body {{ padding: 0.5rem; }}
+    .dashboard {{ padding: 1rem; }}
     .header h1 {{ font-size: 1.3rem; }}
-    .summary-grid {{ grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }}
-    .summary-card {{ padding: 0.75rem; }}
-    .summary-card .card-value {{ font-size: 1.3rem; }}
-    thead th {{ font-size: 0.7rem; padding: 0.5rem; }}
-    td {{ padding: 0.5rem; font-size: 0.8rem; }}
-    .mod-path {{ font-size: 0.75rem; word-break: break-all; }}
-}}
-
-@media (max-width: 480px) {{
-    .summary-grid {{ grid-template-columns: repeat(2, 1fr); }}
-    .controls {{ flex-direction: column; }}
-    .controls input {{ min-width: unset; }}
+    .stats-grid {{ grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; }}
+    .module-grid {{ grid-template-columns: 1fr; }}
+    .signal-summary {{ flex-wrap: wrap; gap: 0.8rem; }}
 }}
 </style>
 </head>
 <body>
 <div class="dashboard">
-    <!-- Header -->
-    <div class="header">
-        <h1>📊 {pkg} Health Dashboard</h1>
-        <div class="timestamp">Generated: {now}</div>
-    </div>
 
-    <!-- Summary Cards -->
-    <div class="summary-grid">
+<!-- HEADER -->
+<div class="header">
+    <h1>{pkg} // HEALTH DASHBOARD</h1>
+    <div class="prompt">codebase projection — {total_modules} modules scanned · {now}</div>
+</div>
+
+<!-- 1. SURFACE STATS -->
+<div class="section">
+    <div class="section-title">Surface Stats</div>
+    <div class="stats-grid">
         {summary_cards}
     </div>
+</div>
 
-    <!-- Signal Summary -->
-    <div class="summary-grid">
+<!-- 2. SIGNAL SUMMARY -->
+<div class="section">
+    <div class="section-title">Health Signals</div>
+    <div class="stats-grid">
         {signal_cards}
     </div>
-
-    <!-- Signal Legend -->
-    <div class="signal-legend">
-        <h3>Signal Legend</h3>
-        <div class="legend-item">🧪 <strong>S1</strong> — No Tests</div>
-        <div class="legend-item">📦 <strong>S2</strong> — Oversized
-            (&gt;200 lines &amp; &gt;15 funcs)</div>
-        <div class="legend-item">💀 <strong>S3</strong> — Dead Code (0 internal imports)</div>
-        <div class="legend-item">🔧 <strong>S4</strong> — Lint/Type Errors</div>
+    <div class="signal-summary">
+        <div>S1 No Tests: <span>{signals_summary.get("S1", 0)}</span></div>
+        <div>S2 Oversized: <span>{signals_summary.get("S2", 0)}</span></div>
+        <div>S3 Dead Code: <span>{signals_summary.get("S3", 0)}</span></div>
+        <div>S4 Lint Errors: <span>{signals_summary.get("S4", 0)}</span></div>
     </div>
+</div>
 
-    <!-- Controls -->
+<!-- 3. COMPARISON (if multiple packages) -->
+{comparison_html}
+
+<!-- 4. MODULE MAP -->
+<div class="section">
+    <div class="section-title">{pkg} — Module Map ({total_modules} modules)</div>
     <div class="controls">
-        <input type="text" id="search" placeholder="Search modules..." oninput="filterTable()">
-        <select id="signalFilter" onchange="filterTable()">
-            <option value="all">All Signals</option>
+        <input type="text" id="search" placeholder="Search modules..." oninput="filterModules()">
+        <select id="signalFilter" onchange="filterModules()">
+            <option value="all">All Status</option>
             <option value="S1">S1 — No Tests</option>
             <option value="S2">S2 — Oversized</option>
             <option value="S3">S3 — Dead Code</option>
             <option value="S4">S4 — Lint Errors</option>
-            <option value="clear">✅ Clear Only</option>
+            <option value="clear">Clear Only</option>
         </select>
     </div>
-
-    <!-- Module Table -->
-    <div class="table-wrapper">
-        <table id="moduleTable">
-            <thead>
-                <tr>
-                    <th>Module</th>
-                    <th>Lines</th>
-                    <th>Funcs</th>
-                    <th>Classes</th>
-                    <th>Doc</th>
-                    <th>Tests</th>
-                    <th>Signals</th>
-                </tr>
-            </thead>
-            <tbody>
-                {module_rows}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-        alloc health dashboard · {total_modules} modules ·
-        {total_lines:,} lines · {total_functions} functions
+    <div class="module-grid" id="moduleGrid">
+        {module_cards}
     </div>
 </div>
 
+{other_sections}
+
+<!-- FOOTER -->
+<div class="footer">
+    {pkg} health dashboard · {total_modules} modules · {total_lines:,} lines
+</div>
+</div>
+
 <script>
-function filterTable() {{
+function filterModules() {{
     const query = document.getElementById("search").value.toLowerCase();
     const signalFilter = document.getElementById("signalFilter").value;
-    const rows = document.querySelectorAll("#moduleTable tbody tr");
+    const cards = document.querySelectorAll("#moduleGrid .mod-card");
 
-    rows.forEach(row => {{
-        const path = row.querySelector(".mod-path").textContent.toLowerCase();
-        const signals = row.querySelector(".mod-signals").textContent;
-        const matchesSearch = path.includes(query);
+    cards.forEach(card => {{
+        const name = card.querySelector(".mod-name").textContent.toLowerCase();
+        const signals = card.querySelector(".mod-signals").textContent;
+        const matchesSearch = name.includes(query);
 
         let matchesSignal = true;
         if (signalFilter === "clear") {{
@@ -525,7 +648,7 @@ function filterTable() {{
             matchesSignal = signals.includes(signalFilter);
         }}
 
-        row.style.display = (matchesSearch && matchesSignal) ? "" : "none";
+        card.style.display = (matchesSearch && matchesSignal) ? "" : "none";
     }});
 }}
 </script>
@@ -544,22 +667,7 @@ def publish(
     output_path: str | Path = "dashboard.html",
     sync: bool = False,
 ) -> Path:
-    """Write HTML to *output_path* and optionally sync to ``gh-pages``.
-
-    Parameters
-    ----------
-    html : str
-        The HTML document string (from :func:`generate_html`).
-    output_path : str or Path
-        File path to write the HTML to.
-    sync : bool
-        If ``True``, push the HTML to a ``gh-pages`` branch via git.
-
-    Returns
-    -------
-    Path
-        The path where the HTML was written.
-    """
+    """Write HTML to *output_path* and optionally sync to ``gh-pages``."""
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -577,25 +685,8 @@ def publish(
 
 
 def _sync_to_ghpages(html_path: Path) -> None:
-    """Push *html_path* to the ``gh-pages`` branch.
-
-    Uses git subcommands to:
-    1. Create or checkout ``gh-pages`` branch
-    2. Copy the HTML file to the branch root
-    3. Commit and push
-
-    Parameters
-    ----------
-    html_path : Path
-        Path to the generated HTML file.
-
-    Raises
-    ------
-    RuntimeError
-        If git is not available or push fails.
-    """
+    """Push *html_path* to the ``gh-pages`` branch."""
     try:
-        # Check git is available
         subprocess.run(
             ["git", "--version"],
             capture_output=True,
@@ -605,7 +696,6 @@ def _sync_to_ghpages(html_path: Path) -> None:
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise RuntimeError(f"git not available: {exc}") from exc
 
-    # Determine repo root
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -621,11 +711,9 @@ def _sync_to_ghpages(html_path: Path) -> None:
     gh_pages_dir = repo_root / ".gh-pages-staging"
     gh_pages_dir.mkdir(exist_ok=True)
 
-    # Copy HTML to staging
     dest = gh_pages_dir / html_path.name
     dest.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
 
-    # Stage, commit, push
     steps = [
         ["git", "-C", str(repo_root), "checkout", "gh-pages"],
         ["git", "-C", str(repo_root), "cp", str(dest), str(repo_root / html_path.name)],
@@ -635,19 +723,16 @@ def _sync_to_ghpages(html_path: Path) -> None:
         ["git", "-C", str(repo_root), "push", "origin", "gh-pages"],
     ]
 
-    # Handle "nothing to commit" gracefully
     for step in steps:
         cmd_str = " ".join(step)
         logger.debug("Running: %s", cmd_str)
         result = subprocess.run(step, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
-            # "nothing to commit" is acceptable
             if "nothing to commit" in result.stderr.lower():
                 logger.info("No changes to commit, skipping")
                 break
             logger.warning("Command failed: %s\nstderr: %s", cmd_str, result.stderr)
 
-    # Clean up staging
     try:
         import shutil
         shutil.rmtree(gh_pages_dir)
@@ -663,24 +748,7 @@ def _sync_to_ghpages(html_path: Path) -> None:
 
 
 def main() -> None:
-    """CLI entry point for publish_dashboard.
-
-    Usage::
-
-        python -m alloc.lib.publish_dashboard [--json PATH] [--output PATH] [--sync]
-
-    If ``--json`` is provided, reads metadata from that file.
-    Otherwise generates fresh metadata via :mod:`alloc.lib.dashboard`.
-
-    Options
-    -------
-    --json PATH
-        Path to pre-generated dashboard JSON.
-    --output PATH
-        Output HTML file path (default: ``dashboard.html``).
-    --sync
-        Push generated HTML to ``gh-pages`` branch.
-    """
+    """CLI entry point for publish_dashboard."""
     parser = argparse.ArgumentParser(
         description="Generate HTML dashboard from alloc metadata"
     )
@@ -690,6 +758,13 @@ def main() -> None:
         type=str,
         default=None,
         help="Path to pre-generated dashboard JSON",
+    )
+    parser.add_argument(
+        "--compare",
+        nargs="+",
+        type=str,
+        default=None,
+        help="Paths to additional JSON files for comparison",
     )
     parser.add_argument(
         "--output",
@@ -704,7 +779,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Load or generate metadata
+    # Load primary metadata
     if args.json_path:
         json_path = Path(args.json_path)
         if not json_path.exists():
@@ -717,8 +792,18 @@ def main() -> None:
         json_str = _gen_json()
         metadata = json.loads(json_str)
 
+    # Load comparison metadata
+    compare_with = []
+    if args.compare:
+        for path_str in args.compare:
+            p = Path(path_str)
+            if p.exists():
+                compare_with.append(json.loads(p.read_text(encoding="utf-8")))
+            else:
+                logger.warning("Comparison file not found: %s", p)
+
     # Generate and publish
-    html = generate_html(metadata)
+    html = generate_html(metadata, compare_with=compare_with if compare_with else None)
     publish(html, output_path=args.output, sync=args.sync)
     print(f"Dashboard published to {args.output}")
 

@@ -14,7 +14,7 @@ from alloc.lib.publish_dashboard import (
     SIGNAL_LABELS,
     _escape_html,
     _signal_badge,
-    _module_row,
+    _module_card,
     generate_html,
     publish,
 )
@@ -129,10 +129,10 @@ class TestSignalBadge:
         assert "badge-s4" in html
         assert "lint_errors(3)" in html
 
-    def test_badge_has_inline_style(self) -> None:
+    def test_badge_has_css_class(self) -> None:
         html = _signal_badge("S2:oversized")
-        assert "background:" in html
-        assert "color:" in html
+        assert "badge-s2" in html
+        assert 'class="badge' in html
 
 
 # ---------------------------------------------------------------------------
@@ -140,19 +140,19 @@ class TestSignalBadge:
 # ---------------------------------------------------------------------------
 
 
-class TestModuleRow:
-    def test_returns_tr_element(self, sample_metadata: dict) -> None:
-        row = _module_row(sample_metadata["modules"][0])
-        assert row.startswith("<tr>")
-        assert row.endswith("</tr>")
+class TestModuleCard:
+    def test_returns_div_element(self, sample_metadata: dict) -> None:
+        card = _module_card(sample_metadata["modules"][0])
+        assert card.startswith('<div class="mod-card"')
+        assert card.endswith("</div>")
 
     def test_contains_module_path(self, sample_metadata: dict) -> None:
-        row = _module_row(sample_metadata["modules"][0])
-        assert "alloc.__init__" in row
+        card = _module_card(sample_metadata["modules"][0])
+        assert "alloc.__init__" in card
 
     def test_clear_module_has_clear_badge(self, sample_metadata: dict) -> None:
-        row = _module_row(sample_metadata["modules"][2])  # no signals
-        assert "clear" in row
+        card = _module_card(sample_metadata["modules"][2])  # no signals
+        assert "clear" in card
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ class TestGenerateHtml:
     def test_contains_inline_js(self, sample_metadata: dict) -> None:
         html = generate_html(sample_metadata)
         assert "<script>" in html
-        assert "filterTable" in html
+        assert "filterModules" in html
 
     def test_contains_viewport_meta(self, sample_metadata: dict) -> None:
         html = generate_html(sample_metadata)
