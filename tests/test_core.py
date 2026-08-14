@@ -693,3 +693,111 @@ class TestMain:
 
         # Results file should be created inside model_path
         assert (model_path / "backtest_results.json").exists()
+
+
+# =====================================================================
+# TICKET-043: StateBuilder wired into training pipeline
+# =====================================================================
+
+
+class TestStateBuilderWiring:
+    """Tests for TICKET-043: StateBuilder replaces build_state_vector in core."""
+
+    def test_simulation_runner_has_build_state_method(self) -> None:
+        """SimulationRunner should have _build_state method."""
+        from alloc.core import SimulationRunner
+        assert hasattr(SimulationRunner, "_build_state")
+
+    def test_build_state_returns_1d_array(self) -> None:
+        """_build_state should return a 1-D numpy array."""
+        from alloc.core import SimulationRunner
+        from alloc.models import data as data_module
+        from alloc.models.networks import ActorCriticNetworks
+        networks = ActorCriticNetworks(
+            input_dim=17,
+            num_assets=2,
+            min_cash_allocation=0.05,
+        )
+        runner = SimulationRunner(
+            tickers=["AAPL"],
+            initial_value=100000.0,
+            networks=networks,
+            data_pipeline=data_module,
+            client=MagicMock(),
+        )
+        multi_freq = {
+            "AAPL": {
+                "hourly": [100.0, 101.0, 102.0, 103.0, 104.0],
+                "daily": [90.0, 92.0, 94.0, 96.0, 98.0],
+                "weekly": [80.0, 85.0, 90.0, 95.0, 100.0],
+            },
+        }
+        state = runner._build_state(multi_freq, [1.0])
+        assert isinstance(state, np.ndarray)
+        assert state.ndim == 1
+
+    def test_build_state_matches_legacy_normalization(self) -> None:
+        """_build_state normalization should match legacy build_state_vector."""
+        from alloc.core import SimulationRunner
+        from alloc.models import data as data_module
+        from alloc.models.networks import ActorCriticNetworks
+        networks = ActorCriticNetworks(
+            input_dim=17,
+            num_assets=2,
+            min_cash_allocation=0.05,
+        )
+        runner = SimulationRunner(
+            tickers=["AAPL"],
+            initial_value=100000.0,
+            networks=networks,
+            data_pipeline=data_module,
+            client=MagicMock(),
+        )
+        multi_freq = {
+            "AAPL": {
+                "hourly": [100.0, 200.0, 300.0, 400.0, 500.0],
+                "daily": [10.0, 20.0, 30.0, 40.0, 50.0],
+                "weekly": [5.0, 10.0, 15.0, 20.0, 25.0],
+            },
+        }
+        # StateBuilder via _build_state
+        sb_state = runner._build_state(multi_freq, [1.0])
+        # Legacy build_state_vector
+        legacy_state = data_module.build_state_vector(
+            multi_freq, [1.0], ["AAPL"],
+            n_hourly=5, n_daily=5, n_weekly=5,
+        )
+        # Should produce identical values
+        np.testing.assert_array_almost_equal(sb_state, legacy_state)
+
+    def test_build_state_last_element_is_allocation(self) -> None:
+        """Last element of state vector should be the allocation value."""
+        from alloc.core import SimulationRunner
+        from alloc.models import data as data_module
+        from alloc.models.networks import ActorCriticNetworks
+        networks = ActorCriticNetworks(
+            input_dim=17,
+            num_assets=2,
+            min_cash_allocation=0.05,
+        )
+        runner = SimulationRunner(
+            tickers=["AAPL"],
+            initial_value=100000.0,
+            networks=networks,
+            data_pipeline=data_module,
+            client=MagicMock(),
+        )
+        multi_freq = {
+            "AAPL": {
+                "hourly": [100.0, 101.0, 102.0, 103.0, 104.0],
+                "daily": [90.0, 92.0, 94.0, 96.0, 98.0],
+                "weekly": [80.0, 85.0, 90.0, 95.0, 100.0],
+            },
+        }
+        state = runner._build_state(multi_freq, [0.75])
+        assert abs(state[-1] - 0.75) < 1e-10
+
+    def test_core_imports_statebuilder(self) -> None:
+        """alloc.core should import StateBuilder."""
+        import alloc.core
+        assert hasattr(alloc.core, "StateBuilder")

@@ -86,21 +86,21 @@ class TestNormalizeWindow:
     def test_basic_normalization(self, builder_small: StateBuilder) -> None:
         prices = [100.0, 110.0, 120.0]
         result = builder_small._normalize_window(prices)
-        # (100/120)-1 = -0.1666..., (110/120)-1 = -0.0833..., (120/120)-1 = 0.0
+        # (100/120) = 0.8333..., (110/120) = 0.9166..., (120/120) = 1.0
         assert len(result) == 3
-        assert abs(result[0] - (-1 / 6)) < 1e-10
-        assert abs(result[1] - (-1 / 12)) < 1e-10
-        assert abs(result[2] - 0.0) < 1e-10
+        assert abs(result[0] - (100.0 / 120.0)) < 1e-10
+        assert abs(result[1] - (110.0 / 120.0)) < 1e-10
+        assert abs(result[2] - 1.0) < 1e-10
 
-    def test_last_element_is_zero(self, builder_small: StateBuilder) -> None:
+    def test_last_element_is_one(self, builder_small: StateBuilder) -> None:
         prices = [50.0, 60.0, 70.0, 80.0]
         result = builder_small._normalize_window(prices)
-        assert abs(result[-1] - 0.0) < 1e-10
+        assert abs(result[-1] - 1.0) < 1e-10
 
     def test_single_price(self, builder_small: StateBuilder) -> None:
         prices = [100.0]
         result = builder_small._normalize_window(prices)
-        assert result == [0.0]
+        assert result == [1.0]
 
     def test_empty_prices(self, builder_small: StateBuilder) -> None:
         result = builder_small._normalize_window([])
@@ -124,9 +124,9 @@ class TestNormalizeWindow:
     def test_negative_returns(self, builder_small: StateBuilder) -> None:
         prices = [200.0, 150.0, 100.0]
         result = builder_small._normalize_window(prices)
-        assert result[0] == 1.0  # (200/100) - 1
-        assert result[1] == 0.5  # (150/100) - 1
-        assert abs(result[2] - 0.0) < 1e-10
+        assert result[0] == 2.0  # 200/100
+        assert result[1] == 1.5  # 150/100
+        assert abs(result[2] - 1.0) < 1e-10
 
     def test_no_nan_or_inf(self, builder_small: StateBuilder) -> None:
         prices = [1.0, 2.0, 3.0, 4.0, 5.0]
@@ -198,11 +198,12 @@ class TestBuildState:
         state = builder_small.build_state(sample_price_data, [0.5, 0.5])
         assert isinstance(state, np.ndarray)
 
-    def test_shape_is_1d_batch(
+    def test_shape_is_1d(
         self, builder_small: StateBuilder, sample_price_data: dict
     ) -> None:
+        """StateBuilder returns 1-D array matching legacy build_state_vector."""
         state = builder_small.build_state(sample_price_data, [0.5, 0.5])
-        assert state.shape[0] == 1
+        assert state.ndim == 1
 
     def test_shape_width_correct(
         self, builder_small: StateBuilder, sample_price_data: dict
@@ -210,7 +211,7 @@ class TestBuildState:
         # 2 tickers * (3 hourly + 5 daily + 2 weekly) + 2 allocation = 20
         expected_n = 2 * (3 + 5 + 2) + 2
         state = builder_small.build_state(sample_price_data, [0.5, 0.5])
-        assert state.shape == (1, expected_n)
+        assert state.shape == (expected_n,)
 
     def test_single_ticker(self, builder_small: StateBuilder) -> None:
         data = {
@@ -222,7 +223,7 @@ class TestBuildState:
         }
         state = builder_small.build_state(data, [1.0])
         expected_n = 1 * (3 + 5 + 2) + 1
-        assert state.shape == (1, expected_n)
+        assert state.shape == (expected_n,)
 
     def test_allocation_appended(self, builder_small: StateBuilder) -> None:
         data = {
@@ -233,14 +234,14 @@ class TestBuildState:
             },
         }
         state = builder_small.build_state(data, [1.0])
-        assert state[0, -1] == 1.0
+        assert state[-1] == 1.0
 
     def test_two_ticker_allocation(
         self, builder_small: StateBuilder, sample_price_data: dict
     ) -> None:
         state = builder_small.build_state(sample_price_data, [0.3, 0.7])
-        assert state[0, -2] == 0.3
-        assert state[0, -1] == 0.7
+        assert state[-2] == 0.3
+        assert state[-1] == 0.7
 
     def test_normalization_in_state(self, builder_small: StateBuilder) -> None:
         data = {
@@ -251,10 +252,10 @@ class TestBuildState:
             },
         }
         state = builder_small.build_state(data, [1.0])
-        # Hourly: (100/300)-1=-0.6667, (200/300)-1=-0.3333, (300/300)-1=0.0
-        assert abs(state[0, 0] - (-2 / 3)) < 1e-10
-        assert abs(state[0, 1] - (-1 / 3)) < 1e-10
-        assert abs(state[0, 2] - 0.0) < 1e-10
+        # Hourly: 100/300=0.3333, 200/300=0.6667, 300/300=1.0
+        assert abs(state[0] - (100.0 / 300.0)) < 1e-10
+        assert abs(state[1] - (200.0 / 300.0)) < 1e-10
+        assert abs(state[2] - 1.0) < 1e-10
 
     def test_padding_in_state(self, builder_small: StateBuilder) -> None:
         data = {
@@ -265,10 +266,10 @@ class TestBuildState:
             },
         }
         state = builder_small.build_state(data, [1.0])
-        # Hourly: pad 2 zeros + normalize [100] -> [0.0, 0.0, 0.0]
-        assert state[0, 0] == 0.0
-        assert state[0, 1] == 0.0
-        assert state[0, 2] == 0.0  # (100/100)-1 = 0.0
+        # Hourly: pad 2 zeros + normalize [100] -> [0.0, 0.0, 1.0]
+        assert state[0] == 0.0
+        assert state[1] == 0.0
+        assert abs(state[2] - 1.0) < 1e-10  # 100/100 = 1.0
 
     def test_empty_data(self, builder_small: StateBuilder) -> None:
         data = {
@@ -280,10 +281,10 @@ class TestBuildState:
         }
         state = builder_small.build_state(data, [1.0])
         expected_n = 1 * (3 + 5 + 2) + 1
-        assert state.shape == (1, expected_n)
+        assert state.shape == (expected_n,)
         # All zeros except allocation
-        assert state[0, -1] == 1.0
-        assert np.all(state[0, :-1] == 0.0)
+        assert state[-1] == 1.0
+        assert np.all(state[:-1] == 0.0)
 
     def test_zero_prices_no_crash(self, builder_small: StateBuilder) -> None:
         data = {
@@ -319,8 +320,8 @@ class TestBuildState:
         }
         state = builder_small.build_state(data, [0.5, 0.5])
         # AAPL comes first (alphabetical), its hourly normalized:
-        # (100/102)-1, (101/102)-1, (102/102)-1
-        assert abs(state[0, 0] - (-2 / 102)) < 1e-10
+        # 100/102, 101/102, 102/102
+        assert abs(state[0] - (100.0 / 102.0)) < 1e-10
 
     def test_default_builder_large_windows(
         self, builder: StateBuilder
@@ -335,7 +336,7 @@ class TestBuildState:
         }
         state = builder.build_state(data, [1.0])
         expected_n = 1 * (168 + 365 + 52) + 1
-        assert state.shape == (1, expected_n)
+        assert state.shape == (expected_n,)
 
     def test_three_tickers(self, builder_small: StateBuilder) -> None:
         data = {
@@ -357,8 +358,8 @@ class TestBuildState:
         }
         state = builder_small.build_state(data, [0.33, 0.33, 0.34])
         expected_n = 3 * (3 + 5 + 2) + 3
-        assert state.shape == (1, expected_n)
+        assert state.shape == (expected_n,)
         # Last 3 elements are allocation
-        assert abs(state[0, -3] - 0.33) < 1e-10
-        assert abs(state[0, -2] - 0.33) < 1e-10
-        assert abs(state[0, -1] - 0.34) < 1e-10
+        assert abs(state[-3] - 0.33) < 1e-10
+        assert abs(state[-2] - 0.33) < 1e-10
+        assert abs(state[-1] - 0.34) < 1e-10

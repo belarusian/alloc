@@ -1031,3 +1031,98 @@ class TestJsonStringInvalidInput:
         """_json_string raises ArgumentTypeError when value is non-numeric."""
         with pytest.raises(argparse.ArgumentTypeError, match="must be numeric"):
             _json_string('{"AAPL": "not_a_number"}')
+
+
+# ===================================================================
+# TICKET-041: Ticker-position consistency validation
+# ===================================================================
+
+
+class TestTickerPositionConsistency:
+    """Tests for TICKET-041: ticker-position cross-validation in TrainingConfig."""
+
+    def test_matching_tickers_and_positions(self) -> None:
+        """Matching tickers and positions should pass validation."""
+        config = TrainingConfig(
+            tickers=["AAPL", "MSFT"],
+            positions={"AAPL": 50000.0, "MSFT": 50000.0},
+        )
+        assert config.tickers == ["AAPL", "MSFT"]
+
+    def test_ticker_missing_from_positions(self) -> None:
+        """Ticker without a corresponding position should raise ValueError."""
+        with pytest.raises(ValueError, match="Tickers without corresponding positions"):
+            TrainingConfig(
+                tickers=["AAPL", "MSFT", "GOOG"],
+                positions={"AAPL": 50000.0, "MSFT": 50000.0},
+            )
+
+    def test_position_extra_ticker_not_in_tickers(self) -> None:
+        """Position key not in tickers list should raise ValueError."""
+        with pytest.raises(ValueError, match="Positions without corresponding tickers"):
+            TrainingConfig(
+                tickers=["AAPL", "MSFT"],
+                positions={"AAPL": 50000.0, "MSFT": 50000.0, "GOOG": 30000.0},
+            )
+
+    def test_empty_tickers_raises(self) -> None:
+        """Empty tickers list should raise ValueError."""
+        with pytest.raises(ValueError, match="Tickers list is empty"):
+            TrainingConfig(
+                tickers=[],
+                positions={"AAPL": 50000.0},
+            )
+
+    def test_empty_positions_raises(self) -> None:
+        """Empty positions dict should raise ValueError."""
+        with pytest.raises(ValueError, match="Positions dictionary is empty"):
+            TrainingConfig(
+                tickers=["AAPL"],
+                positions={},
+            )
+
+    def test_zero_position_value_raises(self) -> None:
+        """Zero position value should raise ValueError."""
+        with pytest.raises(ValueError, match="Position value.*is 0"):
+            TrainingConfig(
+                tickers=["AAPL"],
+                positions={"AAPL": 0.0},
+            )
+
+    def test_negative_position_value_raises(self) -> None:
+        """Negative position value should raise ValueError."""
+        with pytest.raises(ValueError, match="Position value.*is -100"):
+            TrainingConfig(
+                tickers=["AAPL"],
+                positions={"AAPL": -100.0},
+            )
+
+    def test_invalid_json_positions_in_build_config(self) -> None:
+        """build_config should raise ValueError for non-dict positions_values."""
+        args = argparse.Namespace(
+            ticker_list=["AAPL"],
+            positions_values="not a dict",
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Positions must be a JSON object"):
+            build_config(args)
+
+    def test_both_mismatch_raises_first_error(self) -> None:
+        """When both tickers missing from positions AND extra positions exist,
+        the missing-from-positions error is raised first."""
+        with pytest.raises(ValueError, match="Tickers without corresponding positions"):
+            TrainingConfig(
+                tickers=["AAPL", "MSFT", "GOOG"],
+                positions={"AAPL": 50000.0, "TSLA": 30000.0},
+            )

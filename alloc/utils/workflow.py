@@ -84,8 +84,9 @@ class TrainingConfig:
         Raises
         ------
         ValueError
-            If tickers list is empty, positions dict is empty, or any
-            position value is zero or negative.
+            If tickers list is empty, positions dict is empty, any
+            position value is zero or negative, or there is a mismatch
+            between the set of tickers and the set of position keys.
         """
         if not self.tickers:
             raise ValueError(
@@ -103,6 +104,26 @@ class TrainingConfig:
                     f"Position value for '{ticker}' is {value}. "
                     "All position values must be strictly positive."
                 )
+
+        # TICKET-041: Cross-validate tickers and positions
+        ticker_set = set(self.tickers)
+        position_set = set(self.positions.keys())
+
+        missing_in_positions = ticker_set - position_set
+        if missing_in_positions:
+            raise ValueError(
+                f"Tickers without corresponding positions: "
+                f"{sorted(missing_in_positions)}. "
+                "Every ticker must have a matching entry in positions."
+            )
+
+        extra_in_positions = position_set - ticker_set
+        if extra_in_positions:
+            raise ValueError(
+                f"Positions without corresponding tickers: "
+                f"{sorted(extra_in_positions)}. "
+                "Every position key must appear in the tickers list."
+            )
 
 
 @dataclass
