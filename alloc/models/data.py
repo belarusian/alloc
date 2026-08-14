@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from alloc.lib.cache import cache_historical, cache_latest_prices
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,10 +41,11 @@ class StateBuilder:
         self.weekly_window = weekly_window
 
     def _normalize_window(self, prices: list[float]) -> list[float]:
-        """Normalise *prices* by dividing each by the last price, then subtract 1.
+        """Normalise *prices* by dividing each by the last price.
 
-        The result expresses each price as a fractional change relative to
-        the most recent price.  The last element is always ``0.0``.
+        The result expresses each price as a fraction of the most recent
+        price.  The last element is always ``1.0`` (matching the legacy
+        ``build_state_vector`` normalisation for backward compatibility).
 
         Parameters
         ----------
@@ -62,7 +65,7 @@ class StateBuilder:
         if last == 0.0:
             return [0.0] * len(prices)
 
-        return [(p / last) - 1.0 for p in prices]
+        return [p / last for p in prices]
 
     def _pad_window(self, prices: list[float], target_length: int) -> list[float]:
         """Pad *prices* with leading zeros so the result has *target_length* elements.
@@ -113,9 +116,10 @@ class StateBuilder:
         Returns
         -------
         np.ndarray
-            2-D float64 array of shape ``(1, N)`` where
+            1-D float64 array of shape ``(N,)`` where
             ``N = len(tickers) * (hourly_window + daily_window + weekly_window)
-                + len(allocation)``.
+                + len(allocation)``.  Matches the legacy ``build_state_vector``
+            output shape for drop-in replacement in the training pipeline.
         """
         tickers = sorted(price_data.keys())
         parts: list[float] = []
@@ -146,13 +150,14 @@ class StateBuilder:
         # Append allocation
         parts.extend(allocation)
 
-        return np.array(parts, dtype=np.float64).reshape(1, -1)
+        return np.array(parts, dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------
 # Legacy function -- kept for backward compatibility
 # ---------------------------------------------------------------------------
 
+@cache_historical()
 def get_multi_asset_data(
     tickers: list[str],
     client: Any,
@@ -325,6 +330,7 @@ def build_state_vector(
 # Latest prices
 # ---------------------------------------------------------------------------
 
+@cache_latest_prices()
 def fetch_latest_prices(
     tickers: list[str],
     client: Any,
@@ -345,6 +351,8 @@ def fetch_latest_prices(
     """
     prices: dict[str, float] = {}
 
+    cache_valid = True
+
     for ticker in tickers:
         formatted = ticker.upper()
         try:
@@ -355,9 +363,14 @@ def fetch_latest_prices(
                 logger.debug("Latest price for %s: %.2f", formatted, price)
             else:
                 prices[ticker] = 0.0
+                cache_valid = False
                 logger.warning("No valid trade for %s", formatted)
         except Exception as exc:
             logger.warning("Error fetching latest price for %s: %s", formatted, exc)
             prices[ticker] = 0.0
+            cache_valid = False
+
+    if not cache_valid:
+        prices["__cache_valid__"] = False
 
     return prices

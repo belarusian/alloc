@@ -21,6 +21,7 @@ from alloc.config.settings import get_settings
 from alloc.lib.cache import DiskCache
 from alloc.lib.client import PolygonClient
 from alloc.models import data as data_module
+from alloc.models.data import StateBuilder
 from alloc.models.networks import ActorCriticNetworks
 from alloc.models.portfolio import Portfolio, calculate_portfolio_reward
 
@@ -212,6 +213,39 @@ class SimulationRunner:
         )
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_state(
+        self,
+        multi_freq: dict[str, dict[str, list[float]]],
+        alloc_list: list[float],
+    ) -> np.ndarray:
+        """Build state vector using StateBuilder (TICKET-043).
+
+        Replaces the legacy ``data_pipeline.build_state_vector`` call with
+        the OOP ``StateBuilder`` for consistent, testable state construction.
+
+        Parameters
+        ----------
+        multi_freq : dict
+            Multi-frequency price data from ``data_pipeline.get_multi_asset_data``.
+        alloc_list : list[float]
+            Current allocation weights per ticker.
+
+        Returns
+        -------
+        np.ndarray
+            1-D float64 state vector.
+        """
+        builder = StateBuilder(
+            hourly_window=5,
+            daily_window=5,
+            weekly_window=5,
+        )
+        return builder.build_state(multi_freq, alloc_list)
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -269,14 +303,7 @@ class SimulationRunner:
                 current_alloc_dict.get(t, 0.0) for t in self.tickers
             ]
 
-            state = self.data_pipeline.build_state_vector(
-                multi_freq,
-                alloc_list,
-                self.tickers,
-                n_hourly=5,
-                n_daily=5,
-                n_weekly=5,
-            )
+            state = self._build_state(multi_freq, alloc_list)
 
             # Ensure state matches network input_dim
             if state.shape[0] != self.networks.input_dim:
@@ -344,14 +371,7 @@ class SimulationRunner:
             next_alloc_list = [
                 next_alloc_dict.get(t, 0.0) for t in self.tickers
             ]
-            next_state = self.data_pipeline.build_state_vector(
-                next_multi_freq,
-                next_alloc_list,
-                self.tickers,
-                n_hourly=5,
-                n_daily=5,
-                n_weekly=5,
-            )
+            next_state = self._build_state(next_multi_freq, next_alloc_list)
             if next_state.shape[0] != self.networks.input_dim:
                 if next_state.shape[0] < self.networks.input_dim:
                     next_state = np.pad(

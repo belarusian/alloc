@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+import alloc.models.data as data_module
 from alloc.models.data import (
     build_state_vector,
     fetch_latest_prices,
@@ -415,3 +416,86 @@ class TestFetchLatestPrices:
         assert result["AAPL"] == 150.0
         assert result["MSFT"] == 300.0
         assert result["GOOGL"] == 140.0
+
+
+# =====================================================================
+# TICKET-042: Cache decorators on data pipeline
+# =====================================================================
+
+
+class TestCacheDecoratorsApplied:
+    """Tests for TICKET-042: cache decorators on data pipeline functions."""
+
+    def test_get_multi_asset_data_has_cache_decorator(self) -> None:
+        """get_multi_asset_data should be decorated with @cache_historical."""
+        func = data_module.get_multi_asset_data
+        # functools.wraps preserves __wrapped__
+        assert hasattr(func, "__wrapped__"), (
+            "get_multi_asset_data should be wrapped by cache decorator"
+        )
+
+    def test_fetch_latest_prices_has_cache_decorator(self) -> None:
+        """fetch_latest_prices should be decorated with @cache_latest_prices."""
+        func = data_module.fetch_latest_prices
+        assert hasattr(func, "__wrapped__"), (
+            "fetch_latest_prices should be wrapped by cache decorator"
+        )
+
+    def test_cache_valid_protocol_on_zero_price(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should set __cache_valid__=False when any price is zero."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        mock_client.get_last_trade.return_value = None
+        result = raw_func(tickers=["AAPL"], client=mock_client)
+        assert result.get("__cache_valid__") is False
+
+    def test_cache_valid_protocol_on_api_error(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should set __cache_valid__=False on API error."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        mock_client.get_last_trade.side_effect = RuntimeError("network error")
+        result = raw_func(tickers=["AAPL"], client=mock_client)
+        assert result.get("__cache_valid__") is False
+
+    def test_cache_valid_protocol_on_valid_prices(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should NOT set __cache_valid__ when all prices are valid."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        mock_client.get_last_trade.return_value = _make_trade(150.0)
+        result = raw_func(tickers=["AAPL"], client=mock_client)
+        assert "__cache_valid__" not in result
+
+    def test_cache_valid_protocol_partial_failure(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should set __cache_valid__=False if any ticker fails."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        def side_effect(ticker):
+            if ticker == "BAD":
+                raise RuntimeError("fail")
+            return _make_trade(100.0)
+
+        mock_client.get_last_trade.side_effect = side_effect
+        result = raw_func(tickers=["GOOD", "BAD"], client=mock_client)
+        assert result.get("__cache_valid__") is False
+        assert result["GOOD"] == 100.0
+        assert result["BAD"] == 0.0
+
+    def test_cache_valid_protocol_missing_trade(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should set __cache_valid__=False when trade is missing."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        mock_client.get_last_trade.return_value = None
+        result = raw_func(tickers=["AAPL"], client=mock_client)
+        assert result.get("__cache_valid__") is False
+        assert result["AAPL"] == 0.0
+
+    def test_cache_valid_protocol_trade_without_price(self, mock_client: MagicMock) -> None:
+        """Raw fetch_latest_prices should set __cache_valid__=False when trade has no price."""
+        raw_func = data_module.fetch_latest_prices.__wrapped__
+        mock_client.get_last_trade.return_value = SimpleNamespace()
+        result = raw_func(tickers=["AAPL"], client=mock_client)
+        assert result.get("__cache_valid__") is False
+        assert result["AAPL"] == 0.0
+
+    def test_decorated_fetch_strips_cache_valid(self, mock_client: MagicMock) -> None:
+        """Decorated fetch_latest_prices should strip __cache_valid__ from result."""
+        mock_client.get_last_trade.return_value = None
+        # Call the decorated version — __cache_valid__ should be stripped
+        result = fetch_latest_prices(tickers=["AAPL"], client=mock_client)
+        assert "__cache_valid__" not in result
+        assert result["AAPL"] == 0.0
