@@ -17,7 +17,9 @@ Usage
 Or from CLI::
 
     python -m alloc.lib.publish_dashboard [--json PATH] [--output PATH] [--sync]
-    python -m alloc.lib.publish_dashboard --compare alloc/docs_dashboard_metadata.json new-trader.json
+
+    python -m alloc.lib.publish_dashboard \
+        --compare alloc/docs_dashboard_metadata.json new-trader.json
 
 Signals
 -------
@@ -624,7 +626,7 @@ html, body {{
 
 <!-- FOOTER -->
 <div class="footer">
-    {pkg} health dashboard · {total_modules} modules · {total_lines:,} lines · {total_functions} functions
+    {pkg} health dashboard · {total_modules} modules · {total_lines:,} lines
 </div>
 </div>
 
