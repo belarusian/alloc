@@ -378,7 +378,41 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
     -------
     TrainingConfig
         Fully populated configuration object.
+
+    Raises
+    ------
+    ValueError
+        If tickers list is empty, positions contain zero/negative values,
+        or positions JSON is invalid.
     """
+    # Validate tickers list is not empty
+    if not args.ticker_list:
+        raise ValueError(
+            "Tickers list is empty. Provide at least one ticker via --tickers."
+        )
+
+    # Validate positions is a non-empty dict
+    if not isinstance(args.positions_values, dict):
+        type_name = type(args.positions_values).__name__
+        raise ValueError(
+            f"Positions must be a JSON object (dict), got {type_name}. "
+            "Use --positions-values with valid JSON."
+        )
+
+    if not args.positions_values:
+        raise ValueError(
+            "Positions dictionary is empty. "
+            "Provide at least one position via --positions-values."
+        )
+
+    # Validate no zero or negative position values
+    for ticker, value in args.positions_values.items():
+        if value <= 0:
+            raise ValueError(
+                f"Position value for '{ticker}' is {value}. "
+                "All position values must be strictly positive."
+            )
+
     return TrainingConfig(
         tickers=args.ticker_list,
         positions=args.positions_values,
@@ -405,15 +439,37 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
 def print_results(result: "WorkflowResult") -> None:
     """Print workflow results in a structured, human-readable format.
 
+    Handles empty workflow results gracefully by logging an informative
+    message instead of crashing.
+
     Parameters
     ----------
     result : WorkflowResult
         The result returned by :meth:`WorkflowRunner.run`.
     """
     best = result.best_trial
+
+    # Handle missing best_trial
     if best is None:
         logger.warning("No best trial in results")
         return
+
+    # Handle placeholder/empty best_trial (iteration=0 means no real trial ran)
+    if best.iteration == 0 and not best.allocation:
+        logger.warning(
+            "Workflow completed but no valid trial results were produced. "
+            "Status: %s",
+            result.status,
+        )
+        return
+
+    # Handle empty trials list (log warning but still show best_trial if valid)
+    if not result.trials:
+        logger.warning(
+            "Workflow completed with no trials recorded. "
+            "Status: %s. Showing best_trial from result.",
+            result.status,
+        )
 
     logger.info("=" * 60)
     logger.info("WORKFLOW COMPLETE")

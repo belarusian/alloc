@@ -526,10 +526,11 @@ class TestPrintResults:
     def test_no_best_trial_warns(self, caplog: Any) -> None:
         import logging
         caplog.set_level(logging.WARNING)
+        # When trials exist but best_trial is None, we get "No best trial"
         result = WorkflowResult(
             status="error",
             best_trial=None,  # type: ignore[arg-type]
-            trials=[],
+            trials=[TrainingTrial(iteration=1, update=0)],
             allocation_stats={},
             concentration={},
             metrics_progression=[],
@@ -590,6 +591,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_parse.return_value = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=False,
@@ -619,6 +621,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_parse.return_value = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=False,
@@ -639,6 +642,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_parse.return_value = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=False,
@@ -670,6 +674,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_parse.return_value = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=False,
@@ -701,6 +706,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_parse.return_value = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=True,
@@ -751,6 +757,7 @@ class TestMain:
              patch("alloc.core.create_trainer") as mock_create_trainer:
             mock_args = MagicMock(
                 ticker_list=["AAPL"],
+                positions_values={"AAPL": 50000.0},
                 iterations=1,
                 update_iterations=1,
                 conservative=False,
@@ -805,3 +812,222 @@ class TestMainModule:
         """alloc.__main__ exposes main from alloc.cli."""
         from alloc.__main__ import main as main_entry
         assert callable(main_entry)
+
+
+# ===================================================================
+# Edge case validation tests (issue #58)
+# ===================================================================
+
+
+class TestBuildConfigEdgeCases:
+    """Tests for build_config edge case validation."""
+
+    def test_empty_tickers_raises_value_error(self) -> None:
+        """build_config raises ValueError when tickers list is empty."""
+        args = MagicMock(
+            ticker_list=[],
+            positions_values={"AAPL": 50000.0},
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Tickers list is empty"):
+            build_config(args)
+
+    def test_zero_position_raises_value_error(self) -> None:
+        """build_config raises ValueError when a position value is zero."""
+        args = MagicMock(
+            ticker_list=["AAPL"],
+            positions_values={"AAPL": 0.0},
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Position value for 'AAPL' is 0"):
+            build_config(args)
+
+    def test_negative_position_raises_value_error(self) -> None:
+        """build_config raises ValueError when a position value is negative."""
+        args = MagicMock(
+            ticker_list=["AAPL"],
+            positions_values={"AAPL": -100.0},
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Position value for 'AAPL' is -100"):
+            build_config(args)
+
+    def test_empty_positions_dict_raises_value_error(self) -> None:
+        """build_config raises ValueError when positions dict is empty."""
+        args = MagicMock(
+            ticker_list=["AAPL"],
+            positions_values={},
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Positions dictionary is empty"):
+            build_config(args)
+
+    def test_non_dict_positions_raises_value_error(self) -> None:
+        """build_config raises ValueError when positions is not a dict."""
+        args = MagicMock(
+            ticker_list=["AAPL"],
+            positions_values="not a dict",
+            iterations=1,
+            update_iterations=1,
+            trading_days=222,
+            batch_size=22,
+            min_allocation=0.001,
+            concentration_penalty=0.001,
+            transaction_cost=0.0,
+            risk_aversion=0.001,
+            min_cash_allocation=0.05,
+            target_sharpe=2.1,
+            target_value=220000.0,
+            target_outperformance=15.0,
+        )
+        with pytest.raises(ValueError, match="Positions must be a JSON object"):
+            build_config(args)
+
+
+class TestPrintResultsEmptyWorkflow:
+    """Tests for print_results graceful handling of empty workflow results."""
+
+    def test_empty_trials_logs_warning(self, caplog: Any) -> None:
+        """print_results logs warning when no trials were completed and best_trial is placeholder."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        result = WorkflowResult(
+            status="error",
+            best_trial=TrainingTrial(iteration=0, update=0, allocation=[]),
+            trials=[],
+            allocation_stats={},
+            concentration={},
+            metrics_progression=[],
+        )
+        print_results(result)
+        assert "no valid trial" in caplog.text.lower()
+
+    def test_empty_trials_with_valid_best_still_shows(self, caplog: Any) -> None:
+        """print_results warns about empty trials but still shows valid best_trial."""
+        import logging
+        caplog.set_level(logging.INFO)
+        result = WorkflowResult(
+            status="success",
+            best_trial=TrainingTrial(
+                iteration=1, update=0, sharpe_ratio=2.0,
+                outperformance=10.0, final_value=120000.0,
+                model_roi=20.0, buyhold_roi=10.0,
+                allocation=[0.5, 0.5],
+            ),
+            trials=[],
+            allocation_stats={},
+            concentration={},
+            metrics_progression=[],
+        )
+        print_results(result)
+        # Should warn about no trials but still show results
+        assert "no trials" in caplog.text.lower()
+        assert "WORKFLOW COMPLETE" in caplog.text
+
+    def test_empty_best_trial_logs_warning(self, caplog: Any) -> None:
+        """print_results logs warning when best_trial is placeholder (iteration=0)."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        result = WorkflowResult(
+            status="error",
+            best_trial=TrainingTrial(iteration=0, update=0, allocation=[]),
+            trials=[TrainingTrial(iteration=0, update=0, allocation=[])],
+            allocation_stats={},
+            concentration={},
+            metrics_progression=[],
+        )
+        print_results(result)
+        assert "no valid trial" in caplog.text.lower()
+
+    def test_none_best_trial_logs_warning(self, caplog: Any) -> None:
+        """print_results logs warning when best_trial is None."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        result = WorkflowResult(
+            status="error",
+            best_trial=None,  # type: ignore[arg-type]
+            trials=[TrainingTrial(iteration=1, update=0)],
+            allocation_stats={},
+            concentration={},
+            metrics_progression=[],
+        )
+        print_results(result)
+        assert "No best trial" in caplog.text
+
+
+class TestJsonStringInvalidInput:
+    """Tests for _json_string with invalid JSON input."""
+
+    def test_invalid_json_raises_argument_type_error(self) -> None:
+        """_json_string raises ArgumentTypeError on malformed JSON."""
+        with pytest.raises(argparse.ArgumentTypeError, match="not valid JSON"):
+            _json_string("{invalid json}")
+
+    def test_json_array_raises_argument_type_error(self) -> None:
+        """_json_string raises ArgumentTypeError when JSON is an array."""
+        with pytest.raises(argparse.ArgumentTypeError, match="must be a JSON object"):
+            _json_string('[1, 2, 3]')
+
+    def test_json_string_raises_argument_type_error(self) -> None:
+        """_json_string raises ArgumentTypeError when JSON is a string."""
+        with pytest.raises(argparse.ArgumentTypeError, match="must be a JSON object"):
+            _json_string('"just a string"')
+
+    def test_json_number_raises_argument_type_error(self) -> None:
+        """_json_string raises ArgumentTypeError when JSON is a number."""
+        with pytest.raises(argparse.ArgumentTypeError, match="must be a JSON object"):
+            _json_string('42')
+
+    def test_json_null_raises_argument_type_error(self) -> None:
+        """_json_string raises ArgumentTypeError when JSON is null."""
+        with pytest.raises(argparse.ArgumentTypeError, match="must be a JSON object"):
+            _json_string('null')
+
+    def test_json_with_non_numeric_value_raises(self) -> None:
+        """_json_string raises ArgumentTypeError when value is non-numeric."""
+        with pytest.raises(argparse.ArgumentTypeError, match="must be numeric"):
+            _json_string('{"AAPL": "not_a_number"}')

@@ -55,6 +55,12 @@ class TrainingConfig:
         Target final portfolio value.
     target_outperformance : float
         Target outperformance percentage.
+
+    Raises
+    ------
+    ValueError
+        If tickers list is empty, positions dict is empty, or any
+        position value is zero or negative.
     """
 
     tickers: list[str]
@@ -71,6 +77,32 @@ class TrainingConfig:
     target_sharpe: float = 2.1
     target_value: float = 220_000.0
     target_outperformance: float = 15.0
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization.
+
+        Raises
+        ------
+        ValueError
+            If tickers list is empty, positions dict is empty, or any
+            position value is zero or negative.
+        """
+        if not self.tickers:
+            raise ValueError(
+                "Tickers list is empty. Provide at least one ticker."
+            )
+
+        if not self.positions:
+            raise ValueError(
+                "Positions dictionary is empty. Provide at least one position."
+            )
+
+        for ticker, value in self.positions.items():
+            if value <= 0:
+                raise ValueError(
+                    f"Position value for '{ticker}' is {value}. "
+                    "All position values must be strictly positive."
+                )
 
 
 @dataclass
