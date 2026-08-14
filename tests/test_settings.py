@@ -36,8 +36,10 @@ def test_settings_missing_api_key(monkeypatch):
 # --- 3. API key from env var ---
 def test_settings_api_key_from_env(monkeypatch):
     monkeypatch.setenv("POLYGON_API_KEY", "env-key")
-    mod = _import_fresh()
-    assert mod.settings.polygon_api_key == "env-key"
+    from alloc.config.settings import get_settings, reset_settings
+    reset_settings()
+    s = get_settings()
+    assert s.polygon_api_key == "env-key"
 
 
 # --- 4. cache_enabled default True ---
@@ -94,3 +96,43 @@ def test_get_cache_ttl_unknown():
     s = Settings(polygon_api_key="k")
     with pytest.raises(KeyError):
         s.get_cache_ttl("nonexistent")
+
+
+# --- 11. get_settings returns singleton ---
+def test_get_settings_singleton(monkeypatch):
+    monkeypatch.setenv("POLYGON_API_KEY", "test-key")
+    from alloc.config.settings import get_settings, reset_settings
+    reset_settings()
+    s1 = get_settings()
+    s2 = get_settings()
+    assert s1 is s2
+
+
+# --- 12. get_settings raises when no API key ---
+def test_get_settings_no_api_key(monkeypatch):
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    from alloc.config.settings import get_settings, reset_settings
+    reset_settings()
+    with pytest.raises(EnvironmentError, match="POLYGON_API_KEY"):
+        get_settings()
+
+
+# --- 13. reset_settings allows re-creation ---
+def test_reset_settings(monkeypatch):
+    monkeypatch.setenv("POLYGON_API_KEY", "key-v1")
+    from alloc.config.settings import get_settings, reset_settings
+    reset_settings()
+    s1 = get_settings()
+    assert s1.polygon_api_key == "key-v1"
+
+    monkeypatch.setenv("POLYGON_API_KEY", "key-v2")
+    reset_settings()
+    s2 = get_settings()
+    assert s2.polygon_api_key == "key-v2"
+    assert s1 is not s2
+
+
+# --- 14. No module-level settings variable ---
+def test_no_module_level_settings():
+    import alloc.config.settings as mod
+    assert not hasattr(mod, "settings") or mod.settings is None

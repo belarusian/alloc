@@ -39,7 +39,6 @@ class TestDiskCache:
     # 3. expired entry returns None
     def test_get_expired(self, cache: DiskCache) -> None:
         cache.put("exp", {"b": 2})
-        # Manually expire the entry
         entry_path = cache.cache_dir / "exp.json"
         data = json.loads(entry_path.read_text())
         data["_ts"] = time.time() - 99999
@@ -101,137 +100,132 @@ class TestDiskCache:
 
 
 # =====================================================================
-# Decorator tests
+# Helper: build a fake Settings
+# =====================================================================
+
+def _fake_settings(tmp_path: Path, cache_enabled: bool = True):
+    """Build a FakeSettings instance."""
+    _ttl_map = {
+        "latest_prices": 900,
+        "historical_data": 86400,
+        "ticker_details": 604800,
+    }
+
+    class FakeSettings:
+        def __init__(self) -> None:
+            self.cache_dir = tmp_path
+            self.cache_enabled = cache_enabled
+            self.cache_expiry = _ttl_map
+
+        def get_cache_ttl(self, cache_type: str) -> int:
+            return self.cache_expiry[cache_type]
+
+    return FakeSettings()
+
+
+# =====================================================================
+# Decorator tests — patch at source so reload picks up the mock
 # =====================================================================
 
 class TestCachedDecorator:
     """Tests for the @cached decorator."""
 
-    @pytest.fixture()
-    def mock_settings(self, tmp_path: Path):
-        """Patch settings to use tmp_path and known TTLs."""
-        from alloc.config import settings as settings_mod
-
-        _ttl_map = {
-            "latest_prices": 900,
-            "historical_data": 86400,
-            "ticker_details": 604800,
-        }
-
-        class FakeSettings:
-            cache_dir = tmp_path
-            cache_enabled = True
-            cache_expiry = _ttl_map
-
-            def get_cache_ttl(self, cache_type: str) -> int:
-                return _ttl_map[cache_type]
-
-        with patch.object(settings_mod, "settings", FakeSettings()):
-            yield FakeSettings()
-
     # 13. decorator caches result
-    def test_decorator_caches(self, mock_settings) -> None:
+    def test_decorator_caches(self, tmp_path: Path) -> None:
+        fake = _fake_settings(tmp_path)
         import importlib
-
         import alloc.lib.cache as cache_mod
 
-        importlib.reload(cache_mod)
+        # Patch at the source module so reload re-imports the mock
+        with patch("alloc.config.settings.get_settings", return_value=fake):
+            importlib.reload(cache_mod)
 
-        call_count = 0
+            call_count = 0
 
-        @cache_mod.cached("latest_prices")
-        def slow_fn(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
+            @cache_mod.cached("latest_prices")
+            def slow_fn(x: int) -> int:
+                nonlocal call_count
+                call_count += 1
+                return x * 2
 
-        assert slow_fn(5) == 10
-        assert slow_fn(5) == 10
-        assert call_count == 1
+            assert slow_fn(5) == 10
+            assert slow_fn(5) == 10
+            assert call_count == 1
 
     # 14. decorator respects __cache_valid__: False
-    def test_decorator_cache_valid_false(self, mock_settings) -> None:
+    def test_decorator_cache_valid_false(self, tmp_path: Path) -> None:
+        fake = _fake_settings(tmp_path)
         import importlib
-
         import alloc.lib.cache as cache_mod
 
-        importlib.reload(cache_mod)
+        with patch("alloc.config.settings.get_settings", return_value=fake):
+            importlib.reload(cache_mod)
 
-        call_count = 0
+            call_count = 0
 
-        @cache_mod.cached("latest_prices")
-        def bad_fn() -> dict:
-            nonlocal call_count
-            call_count += 1
-            return {"data": 1, "__cache_valid__": False}
+            @cache_mod.cached("latest_prices")
+            def bad_fn() -> dict:
+                nonlocal call_count
+                call_count += 1
+                return {"data": 1, "__cache_valid__": False}
 
-        r1 = bad_fn()
-        r2 = bad_fn()
-        assert r1 == {"data": 1}
-        assert r2 == {"data": 1}
-        assert "__cache_valid__" not in r1
-        assert call_count == 2  # called twice, never cached
+            r1 = bad_fn()
+            r2 = bad_fn()
+            assert r1 == {"data": 1}
+            assert r2 == {"data": 1}
+            assert "__cache_valid__" not in r1
+            assert call_count == 2
 
     # 15. convenience decorator cache_latest_prices
-    def test_cache_latest_prices_convenience(self, mock_settings) -> None:
+    def test_cache_latest_prices_convenience(self, tmp_path: Path) -> None:
+        fake = _fake_settings(tmp_path)
         import importlib
-
         import alloc.lib.cache as cache_mod
 
-        importlib.reload(cache_mod)
+        with patch("alloc.config.settings.get_settings", return_value=fake):
+            importlib.reload(cache_mod)
 
-        call_count = 0
+            call_count = 0
 
-        @cache_mod.cache_latest_prices()
-        def prices() -> dict:
-            nonlocal call_count
-            call_count += 1
-            return {"AAPL": 150}
+            @cache_mod.cache_latest_prices()
+            def prices() -> dict:
+                nonlocal call_count
+                call_count += 1
+                return {"AAPL": 150}
 
-        assert prices() == {"AAPL": 150}
-        assert prices() == {"AAPL": 150}
-        assert call_count == 1
+            assert prices() == {"AAPL": 150}
+            assert prices() == {"AAPL": 150}
+            assert call_count == 1
 
     # 16. decorator with kwargs
-    def test_decorator_kwargs(self, mock_settings) -> None:
+    def test_decorator_kwargs(self, tmp_path: Path) -> None:
+        fake = _fake_settings(tmp_path)
         import importlib
-
         import alloc.lib.cache as cache_mod
 
-        importlib.reload(cache_mod)
+        with patch("alloc.config.settings.get_settings", return_value=fake):
+            importlib.reload(cache_mod)
 
-        call_count = 0
+            call_count = 0
 
-        @cache_mod.cached("latest_prices")
-        def fn(a: int, b: int = 0) -> int:
-            nonlocal call_count
-            call_count += 1
-            return a + b
+            @cache_mod.cached("latest_prices")
+            def fn(a: int, b: int = 0) -> int:
+                nonlocal call_count
+                call_count += 1
+                return a + b
 
-        assert fn(1, b=2) == 3
-        assert fn(1, b=2) == 3
-        assert fn(1, b=3) == 4
-        assert call_count == 2
+            assert fn(1, b=2) == 3
+            assert fn(1, b=2) == 3
+            assert fn(1, b=3) == 4
+            assert call_count == 2
 
     # 17. disabled cache skips caching
     def test_decorator_disabled(self, tmp_path: Path) -> None:
-        from alloc.config import settings as settings_mod
+        fake = _fake_settings(tmp_path, cache_enabled=False)
+        import importlib
+        import alloc.lib.cache as cache_mod
 
-        _ttl_map = {"latest_prices": 900}
-
-        class FakeSettings:
-            cache_dir = tmp_path
-            cache_enabled = False
-            cache_expiry = _ttl_map
-
-            def get_cache_ttl(self, cache_type: str) -> int:
-                return _ttl_map[cache_type]
-
-        with patch.object(settings_mod, "settings", FakeSettings()):
-            import importlib
-
-            import alloc.lib.cache as cache_mod
-
+        with patch("alloc.config.settings.get_settings", return_value=fake):
             importlib.reload(cache_mod)
 
             call_count = 0
@@ -247,28 +241,29 @@ class TestCachedDecorator:
             assert call_count == 2
 
     # 18. cache expiry via mocked time
-    def test_decorator_expiry(self, mock_settings) -> None:
+    def test_decorator_expiry(self, tmp_path: Path) -> None:
+        fake = _fake_settings(tmp_path)
         import importlib
-
         import alloc.lib.cache as cache_mod
 
-        importlib.reload(cache_mod)
+        with patch("alloc.config.settings.get_settings", return_value=fake):
+            importlib.reload(cache_mod)
 
-        call_count = 0
+            call_count = 0
 
-        @cache_mod.cached("latest_prices")
-        def fn() -> int:
-            nonlocal call_count
-            call_count += 1
-            return call_count
+            @cache_mod.cached("latest_prices")
+            def fn() -> int:
+                nonlocal call_count
+                call_count += 1
+                return call_count
 
-        assert fn() == 1
-        assert fn() == 1  # cached
+            assert fn() == 1
+            assert fn() == 1  # cached
 
-        # Expire the cache entry
-        for f in mock_settings.cache_dir.glob("*.json"):
-            data = json.loads(f.read_text())
-            data["_ts"] = time.time() - 9999
-            f.write_text(json.dumps(data))
+            # Expire the cache entry
+            for f in tmp_path.glob("*.json"):
+                data = json.loads(f.read_text())
+                data["_ts"] = time.time() - 9999
+                f.write_text(json.dumps(data))
 
-        assert fn() == 2  # re-called after expiry
+            assert fn() == 2  # re-called after expiry

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from alloc.config.settings import settings
+from alloc.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class DiskCache:
 
     def get_ttl(self, cache_type: str) -> int:
         """Return TTL in seconds for *cache_type* via settings."""
-        return settings.get_cache_ttl(cache_type)
+        return get_settings().get_cache_ttl(cache_type)
 
     # ------------------------------------------------------------------
     # Key helpers
@@ -121,7 +121,7 @@ class DiskCache:
 def cached(cache_type: str) -> Callable:
     """Decorator that caches a function's return value on disk.
 
-    Reads TTL from :func:`settings.get_cache_ttl` for *cache_type*.
+    Reads TTL from :func:`get_settings().get_cache_ttl` for *cache_type*.
 
     **__cache_valid__ protocol**
     If the decorated function returns a ``dict`` containing
@@ -132,14 +132,14 @@ def cached(cache_type: str) -> Callable:
 
     def decorator(func: Callable) -> Callable:
         cache = DiskCache(
-            cache_dir=settings.cache_dir,
-            enabled=settings.cache_enabled,
+            cache_dir=get_settings().cache_dir,
+            enabled=get_settings().cache_enabled,
         )
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             key = cache._make_key(func.__name__, args, tuple(sorted(kwargs.items())))
-            ttl = settings.get_cache_ttl(cache_type)
+            ttl = get_settings().get_cache_ttl(cache_type)
 
             # Try cache first
             cached_value = cache.get(key, ttl)
