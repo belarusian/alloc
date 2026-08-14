@@ -684,7 +684,7 @@ class TestMain:
             verbose=False,
         )), patch("alloc.core.ActorCriticNetworks", return_value=mock_networks), \
              patch("alloc.core.PolygonClient", return_value=mock_client), \
-             patch("alloc.core.Settings", return_value=MagicMock(
+             patch("alloc.core.get_settings", return_value=MagicMock(
                  polygon_api_key="fake-key",
                  cache_enabled=True,
                  cache_dir=tmp_path,
