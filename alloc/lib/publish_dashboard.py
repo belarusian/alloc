@@ -113,10 +113,8 @@ def _module_card(mod: dict[str, Any]) -> str:
 
     return (
         f'<div class="mod-card" style="border-color: {border_color};">'
-        f'<div class="mod-header">'
-        f'<span class="mod-name">{path}</span>'
-        f'<span class="mod-signals">{status_html}</span>'
-        f'</div>'
+        f'<div class="mod-name">{path}</div>'
+        f'<div class="mod-signals">{status_html}</div>'
         f'<div class="mod-meta">'
         f'<span>CLASSES: {classes}</span>'
         f'<span>FUNCS: {functions}</span>'
@@ -466,21 +464,18 @@ html, body {{
     border-color: #2d7d46;
 }}
 
-.mod-header {{
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.3rem;
-    gap: 0.6rem;
-}}
-
 .mod-name {{
     font-size: 0.95rem;
     color: #2d7d46;
+    margin-bottom: 0.3rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+}}
+
+.mod-signals {{
+    margin-bottom: 0.3rem;
+    min-height: 1.4em;
 }}
 
 .mod-status {{
