@@ -1,6 +1,6 @@
 """Polygon API client wrapper with caching.
 
-Thin wrapper around ``polygon.RestClient`` that applies disk caching
+Thin wrapper around ``polygon.StocksClient`` that applies disk caching
 to select methods while proxying all other attributes through
 ``__getattr__`` to the underlying client.
 
@@ -19,7 +19,7 @@ import functools
 import logging
 from typing import Any, Callable
 
-from polygon import RESTClient
+from polygon import StocksClient
 
 from alloc.lib.cache import DiskCache
 
@@ -90,7 +90,7 @@ def _cached_method(cache: DiskCache, cache_type: str) -> Callable:
 # ---------------------------------------------------------------------------
 
 class PolygonClient:
-    """Cached wrapper around ``polygon.RestClient``.
+    """Cached wrapper around ``polygon.StocksClient``.
 
     Parameters
     ----------
@@ -115,7 +115,7 @@ class PolygonClient:
         cache: DiskCache,
         cache_map: dict[str, str] | None = None,
     ) -> None:
-        self._client = RESTClient(api_key)
+        self._client = StocksClient(api_key)
         self._cache = cache
         self._cache_map = cache_map or CACHE_MAP
 
@@ -132,7 +132,7 @@ class PolygonClient:
             raw = getattr(self._client, method_name, None)
             if raw is None:
                 logger.warning(
-                    "Method %r not found on RESTClient — skipping cache wrap",
+                    "Method %r not found on StocksClient — skipping cache wrap",
                     method_name,
                 )
                 continue
@@ -145,7 +145,7 @@ class PolygonClient:
     # ------------------------------------------------------------------
 
     def __getattr__(self, name: str) -> Any:
-        """Proxy attribute access to the underlying RESTClient.
+        """Proxy attribute access to the underlying StocksClient.
 
         This allows uncached methods and properties to be called
         transparently.

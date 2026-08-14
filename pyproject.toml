@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "alloc"
@@ -13,7 +13,11 @@ dependencies = [
     "pandas>=2.0.0",
     "scipy>=1.10.0",
     "matplotlib>=3.7.0",
+    "tensorflow>=2.13.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["alloc*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

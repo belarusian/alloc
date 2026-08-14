@@ -27,7 +27,7 @@ def _mock_method(name: str, return_value) -> MagicMock:
 
 @pytest.fixture()
 def mock_rest_client() -> MagicMock:
-    """Return a MagicMock standing in for polygon.RESTClient."""
+    """Return a MagicMock standing in for polygon.StocksClient."""
     client = MagicMock()
     client.get_aggs = _mock_method("get_aggs", {"results": [1, 2, 3]})
     client.get_ticker_details = _mock_method("get_ticker_details", {"ticker": "AAPL"})
@@ -49,8 +49,8 @@ def disabled_cache(tmp_path: Path) -> DiskCache:
 
 @pytest.fixture()
 def client(mock_rest_client: MagicMock, cache: DiskCache) -> PolygonClient:
-    """PolygonClient with mocked RESTClient and real cache."""
-    with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+    """PolygonClient with mocked StocksClient and real cache."""
+    with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
         return PolygonClient(api_key="fake-key", cache=cache)
 
 
@@ -62,7 +62,7 @@ class TestConstruction:
     """Tests for PolygonClient.__init__."""
 
     def test_creates_underlying_client(self, mock_rest_client: MagicMock) -> None:
-        with patch("alloc.lib.client.RESTClient") as mock_cls:
+        with patch("alloc.lib.client.StocksClient") as mock_cls:
             mock_cls.return_value = mock_rest_client
             PolygonClient(api_key="k", cache=MagicMock(spec=DiskCache))
             mock_cls.assert_called_once_with("k")
@@ -70,14 +70,14 @@ class TestConstruction:
     def test_stores_cache_reference(
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache)
             assert c._cache is cache
 
     def test_uses_default_cache_map(
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache)
             assert c._cache_map == CACHE_MAP
 
@@ -85,7 +85,7 @@ class TestConstruction:
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
         custom = {"get_aggs": "latest_prices"}
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache, cache_map=custom)
             assert c._cache_map == custom
 
@@ -117,7 +117,7 @@ class TestCaching:
     def test_disabled_cache_skips_caching(
         self, mock_rest_client: MagicMock, disabled_cache: DiskCache
     ) -> None:
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=disabled_cache)
             c.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
             c.get_aggs("AAPL", 1, "day", "2024-01-01", "2024-01-31")
@@ -129,7 +129,7 @@ class TestCaching:
 # =====================================================================
 
 class TestProxy:
-    """Tests that uncached methods are proxied to RESTClient."""
+    """Tests that uncached methods are proxied to StocksClient."""
 
     def test_uncached_method_is_proxied(self, client: PolygonClient) -> None:
         """get_news is not in CACHE_MAP, should go straight through."""
@@ -158,7 +158,7 @@ class TestProxy:
         _noop2.__name__ = "get_ticker_details"
         bare_client.get_ticker_details = _noop2
 
-        with patch("alloc.lib.client.RESTClient", return_value=bare_client):
+        with patch("alloc.lib.client.StocksClient", return_value=bare_client):
             c = PolygonClient(api_key="k", cache=cache)
             with pytest.raises(AttributeError):
                 _ = c.this_method_does_not_exist_at_all
@@ -179,7 +179,7 @@ class TestCacheValidProtocol:
             "ticker": "AAPL",
             "__cache_valid__": False,
         }
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache)
             r1 = c.get_ticker_details("AAPL")
             r2 = c.get_ticker_details("AAPL")
@@ -200,12 +200,12 @@ class TestApplyCaching:
     def test_missing_method_on_restclient_is_skipped(
         self, mock_rest_client: MagicMock, cache: DiskCache
     ) -> None:
-        """If a method in cache_map doesn't exist on RESTClient, skip it."""
+        """If a method in cache_map doesn't exist on StocksClient, skip it."""
         custom_map = {
             "get_aggs": "historical_data",
             "nonexistent_method_xyz": "latest_prices",
         }
-        with patch("alloc.lib.client.RESTClient", return_value=mock_rest_client):
+        with patch("alloc.lib.client.StocksClient", return_value=mock_rest_client):
             c = PolygonClient(api_key="k", cache=cache, cache_map=custom_map)
             # get_aggs should be wrapped
             assert hasattr(c, "get_aggs")
