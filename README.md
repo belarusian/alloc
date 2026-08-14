@@ -1,71 +1,60 @@
 # alloc
 
-Reinforcement-learning portfolio allocation engine that trains actor-critic policy networks on multi-frequency market data and produces optimal asset allocations for a fixed basket of tickers.
+**Multi-asset portfolio management system using DDPG reinforcement learning.**
 
-## Operating Philosophy
+`alloc` trains Deep Deterministic Policy Gradient (DDPG) actor-critic networks on multi-frequency market data (hourly, daily, weekly) and produces optimal asset allocations for a fixed basket of tickers. Each training run yields a short-lived model snapshot tuned to current market conditions — when the regime shifts, you retrain.
 
-- Every model is a short-lived snapshot optimized for current market conditions. Once it drifts, you retire it and train a new one.
-- Overfitting to the latest regime is a feature — each snapshot captures what works now, not what generalizes forever.
-- The workflow is cyclical: ingest fresh data → spawn candidates → pick the strongest metrics → deploy → repeat.
+## Table of Contents
 
-## Architecture
+- [Project Overview](#project-overview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Testing](#testing)
+- [License](#license)
+- [Contributing](#contributing)
 
-**Actor–Critic (DDPG-style)** policy network:
+---
 
-- **Actor** proposes allocation percentages across a fixed basket of assets + cash. Uses per-asset branches with varying widths to prevent symmetric learning collapse. A cash constraint layer guarantees allocations sum to 1.0 with a configurable minimum cash floor.
-- **Critic** evaluates each proposed allocation by estimating expected future return via Q-value regression.
-- Target networks are soft-updated for stable learning. Experience replay breaks temporal correlation.
+## Project Overview
 
-**Multi-objective reward function:**
+### Purpose
 
-| Component | Purpose |
+`alloc` is a reinforcement-learning portfolio allocation engine designed for systematic trading. It:
+
+1. **Fetches** multi-frequency price data (hourly, daily, weekly) from Polygon.io.
+2. **Builds** fixed-dimension state vectors from normalised price windows and current allocations.
+3. **Trains** a DDPG actor-critic pair to learn an allocation policy that maximises a composite reward signal combining return, risk, transaction costs, diversification, and concentration.
+4. **Simulates** portfolio rebalancing with realistic trade execution (shortfall scaling, transaction costs, cash constraints).
+5. **Orchestrates** multi-trial training workflows that score and rank candidate models by Sharpe ratio and outperformance vs. buy-and-hold.
+
+### Operating Philosophy
+
+- **Every model is a short-lived snapshot** optimised for current market conditions. Once it drifts, retire it and train a new one.
+- **Overfitting to the latest regime is a feature** — each snapshot captures what works now, not what generalises forever.
+- **The workflow is cyclical**: ingest fresh data → spawn candidates → pick the strongest metrics → deploy → repeat.
+
+### Key Modules
+
+| Module | Responsibility |
 |---|---|
-| Portfolio return | Weighted sum of asset returns |
-| Risk penalty | Volatility-adjusted drawdown |
-| Transaction cost | Penalizes unnecessary turnover |
-| Diversification bonus | Shannon entropy + HHI — rewards spreading risk |
-| Concentration penalty | Quadratic penalty on oversized positions |
+| `alloc.lib.client` | Polygon.io API wrapper with disk caching |
+| `alloc.lib.cache` | Disk-based cache with configurable TTL per data type |
+| `alloc.models.data` | Multi-frequency data fetching and state vector construction |
+| `alloc.models.networks` | DDPG actor-critic networks and replay buffer |
+| `alloc.models.portfolio` | Portfolio tracking, trade execution, reward calculation |
+| `alloc.core` | Simulation runner and results serialisation |
+| `alloc.utils.workflow` | Multi-trial training orchestration and scoring |
+| `alloc.cli` | Command-line interface for the training workflow |
+| `alloc.config.settings` | Environment-driven configuration management |
 
-**Multi-frequency state construction:**
+---
 
-Each tick's state combines 24 hourly returns, 10 daily returns, and 4 weekly returns per asset — giving the model short-term momentum, medium-term trend, and long-term direction. A `day_index` gate prevents lookahead bias during backtest.
+## Installation
 
-## Quick Start
+### Prerequisites
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+- Python ≥ 3.10
+- A [Polygon.io](https://polygon.io) API key
 
-# Configure Polygon.io API key
-cp .env.example .env
-# Edit .env, set POLYGON_API_KEY
-
-# Train a model on a basket of tickers
-python -m alloc.core --backtest \
-  --tickers AAPL,META,GOOG,NVDA \
-  --trading-days 242 \
-  --plot
-
-# Get allocation recommendation from trained model
-python -m alloc.core --predict \
-  --tickers AAPL,META,GOOG,NVDA \
-  --model-path results/my_model
-```
-
-## Repository Layout
-
-- `alloc/` — Core Python package (networks, portfolio engine, data pipeline, configuration)
-- `utils/` — CLI entry points and workflow tools
-- `tests/` — Test suite
-- `scripts/` — Bootstrap and health-check helpers
-- `adr/` — Architecture decision records
-
-## Testing
-
-```bash
-pytest tests/ -x -q
-```
-
-## License
-
-MIT
+### Steps
