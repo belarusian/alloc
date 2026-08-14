@@ -1,6 +1,9 @@
 """Configuration management for alloc.
 
 Reads environment variables and provides typed settings with sensible defaults.
+
+Uses a lazy singleton pattern via :func:`get_settings` to defer instantiation
+until first access.
 """
 
 from __future__ import annotations
@@ -76,5 +79,39 @@ class Settings:
         return self.cache_expiry[cache_type]
 
 
-# Module-level singleton — created on first import.
-settings = Settings()
+# ---------------------------------------------------------------------------
+# Lazy singleton
+# ---------------------------------------------------------------------------
+
+_settings_instance: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Return the singleton :class:`Settings` instance.
+
+    The instance is created lazily on first call, so no API-key check
+    fires at import time.  Subsequent calls return the same object.
+
+    Returns
+    -------
+    Settings
+        The shared settings singleton.
+
+    Raises
+    ------
+    EnvironmentError
+        If ``POLYGON_API_KEY`` is not set when the instance is created.
+    """
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = Settings()
+    return _settings_instance
+
+
+def reset_settings() -> None:
+    """Reset the singleton so the next :func:`get_settings` creates a fresh instance.
+
+    Useful in tests that need to re-read environment variables.
+    """
+    global _settings_instance
+    _settings_instance = None

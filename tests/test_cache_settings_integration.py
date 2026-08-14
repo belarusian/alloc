@@ -7,11 +7,9 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from alloc.config import settings as settings_mod
-
 
 def _make_fake_settings(tmp_path: Path, **overrides):
-    """Build a fake Settings class instance for patching."""
+    """Build a fake Settings instance for patching get_settings()."""
     defaults = {
         "cache_dir": tmp_path,
         "cache_enabled": True,
@@ -24,9 +22,10 @@ def _make_fake_settings(tmp_path: Path, **overrides):
     defaults.update(overrides)
 
     class FakeSettings:
-        cache_dir = defaults["cache_dir"]
-        cache_enabled = defaults["cache_enabled"]
-        cache_expiry = defaults["cache_expiry"]
+        def __init__(self) -> None:
+            self.cache_dir = defaults["cache_dir"]
+            self.cache_enabled = defaults["cache_enabled"]
+            self.cache_expiry = defaults["cache_expiry"]
 
         def get_cache_ttl(self, cache_type: str) -> int:
             return self.cache_expiry[cache_type]
@@ -37,10 +36,10 @@ def _make_fake_settings(tmp_path: Path, **overrides):
 # 1. Cache decorator uses TTL from settings
 def test_cache_uses_settings_ttl(tmp_path: Path) -> None:
     fake = _make_fake_settings(tmp_path)
-    with patch.object(settings_mod, "settings", fake):
-        import importlib
+    import importlib
+    import alloc.lib.cache as cache_mod
 
-        import alloc.lib.cache as cache_mod
+    with patch("alloc.config.settings.get_settings", return_value=fake):
         importlib.reload(cache_mod)
 
         call_count = 0
@@ -67,10 +66,10 @@ def test_cache_uses_settings_ttl(tmp_path: Path) -> None:
 # 2. Cache respects settings.cache_enabled = False
 def test_cache_respects_enabled_flag(tmp_path: Path) -> None:
     fake = _make_fake_settings(tmp_path, cache_enabled=False)
-    with patch.object(settings_mod, "settings", fake):
-        import importlib
+    import importlib
+    import alloc.lib.cache as cache_mod
 
-        import alloc.lib.cache as cache_mod
+    with patch("alloc.config.settings.get_settings", return_value=fake):
         importlib.reload(cache_mod)
 
         call_count = 0
@@ -90,10 +89,10 @@ def test_cache_respects_enabled_flag(tmp_path: Path) -> None:
 def test_cache_uses_settings_dir(tmp_path: Path) -> None:
     custom_dir = tmp_path / "custom_cache"
     fake = _make_fake_settings(custom_dir)
-    with patch.object(settings_mod, "settings", fake):
-        import importlib
+    import importlib
+    import alloc.lib.cache as cache_mod
 
-        import alloc.lib.cache as cache_mod
+    with patch("alloc.config.settings.get_settings", return_value=fake):
         importlib.reload(cache_mod)
 
         @cache_mod.cached("latest_prices")
@@ -111,10 +110,10 @@ def test_cache_uses_settings_dir(tmp_path: Path) -> None:
 # 4. Full roundtrip: write → read → expire → re-read
 def test_full_roundtrip(tmp_path: Path) -> None:
     fake = _make_fake_settings(tmp_path)
-    with patch.object(settings_mod, "settings", fake):
-        import importlib
+    import importlib
+    import alloc.lib.cache as cache_mod
 
-        import alloc.lib.cache as cache_mod
+    with patch("alloc.config.settings.get_settings", return_value=fake):
         importlib.reload(cache_mod)
 
         call_count = 0

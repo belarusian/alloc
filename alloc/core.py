@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from alloc.config.settings import Settings
+from alloc.config.settings import get_settings
 from alloc.lib.cache import DiskCache
 from alloc.lib.client import PolygonClient
 from alloc.models import data as data_module
@@ -628,7 +628,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # Load settings
-    settings = Settings()
+    settings = get_settings()
 
     # Initialize cache and client
     cache = DiskCache(
