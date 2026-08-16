@@ -424,3 +424,131 @@ class TestCalculatePortfolioReward:
             concentration_penalty=0.02,
         )
         assert not math.isnan(reward)
+
+
+# ── Value history + returns analysis (seed-parity) ─────────────────
+
+class TestValueHistory:
+    def test_seeded_with_initial_cash(self):
+        p = Portfolio(tickers=TICKERS, initial_cash=50_000.0)
+        assert p.portfolio_values == [50_000.0]
+
+    def test_record_value_appends(self, portfolio, prices):
+        portfolio.shares_held["AAPL"] = 100
+        v = portfolio.record_value(prices)
+        assert v == pytest.approx(INITIAL_CASH + 100 * 150.0)
+        assert len(portfolio.portfolio_values) == 2
+        assert portfolio.portfolio_values[-1] == pytest.approx(v)
+
+
+class TestCalculateReturns:
+    def test_neutral_when_insufficient_history(self, portfolio):
+        r = portfolio.calculate_returns()
+        assert r["daily_returns"] == []
+        assert r["cumulative_return"] == 0.0
+        assert r["sharpe_ratio"] == 0.0
+        assert r["max_drawdown"] == 0.0
+
+    def test_cumulative_and_daily(self, portfolio, prices):
+        portfolio.shares_held["AAPL"] = 100
+        portfolio.record_value({"AAPL": 150.0, "GOOGL": 2800.0, "MSFT": 300.0})
+        portfolio.record_value({"AAPL": 160.0, "GOOGL": 2800.0, "MSFT": 300.0})
+        r = portfolio.calculate_returns()
+        # history: [100000, 115000, 116000] -> 2 daily returns
+        assert len(r["daily_returns"]) == 2
+        assert r["daily_returns"][0] == pytest.approx(115000.0 / 100000.0 - 1.0)
+        assert r["daily_returns"][1] == pytest.approx(116000.0 / 115000.0 - 1.0)
+        assert r["cumulative_return"] == pytest.approx(116000.0 / 100000.0 - 1.0)
+
+    def test_max_drawdown(self, portfolio):
+        # Build a value path with a known drawdown: 100 -> 120 -> 90 -> 110
+        portfolio.portfolio_values = [100.0, 120.0, 90.0, 110.0]
+        r = portfolio.calculate_returns()
+        # peak 120 -> trough 90 = 25% drawdown
+        assert r["max_drawdown"] == pytest.approx(0.25)
+
+    def test_lookback_limits_window(self, portfolio):
+        portfolio.portfolio_values = [100.0, 110.0, 121.0, 133.1]
+        full = portfolio.calculate_returns()
+        limited = portfolio.calculate_returns(lookback=2)
+        assert len(full["daily_returns"]) == 3
+        assert len(limited["daily_returns"]) == 1
+        # last step: 133.1/121 - 1
+        assert limited["daily_returns"][0] == pytest.approx(133.1 / 121.0 - 1.0)
+
+    def test_sharpe_positive_for_rising_series(self, portfolio):
+        # steadily rising values -> positive mean return -> positive Sharpe
+        portfolio.portfolio_values = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]
+        r = portfolio.calculate_returns()
+        assert r["sharpe_ratio"] > 0
+
+    def test_annualized_return_present(self, portfolio):
+        portfolio.portfolio_values = [100.0, 110.0, 121.0]
+        r = portfolio.calculate_returns()
+        assert isinstance(r["annualized_return"], float)
+
+
+# ── Portfolio statistics (seed-parity) ─────────────────────────────
+
+class TestPortfolioStatistics:
+    def test_positions_reported(self, portfolio, prices):
+        portfolio.shares_held["AAPL"] = 100
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        pos = stats["positions"]["AAPL"]
+        assert pos["shares"] == 100
+        assert pos["price"] == pytest.approx(150.0)
+        assert pos["value"] == pytest.approx(15000.0)
+        assert pos["allocation"] == pytest.approx(15000.0 / stats["portfolio_value"])
+
+    def test_concentration_single_asset(self, portfolio, prices):
+        portfolio.shares_held["AAPL"] = 100
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        c = stats["concentration"]
+        assert c["num_assets_held"] == 1
+        # single asset -> normalized HHI = 1.0
+        assert c["hhi_normalized"] == pytest.approx(1.0)
+
+    def test_concentration_equal_assets(self, portfolio, prices):
+        # equal dollar positions -> minimal HHI
+        portfolio.shares_held["AAPL"] = 100      # 15000
+        portfolio.shares_held["GOOGL"] = 15000.0 / 2800.0  # 15000
+        portfolio.shares_held["MSFT"] = 15000.0 / 300.0    # 15000
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        c = stats["concentration"]
+        assert c["num_assets_held"] == 3
+        # non-cash weights renormalised to sum to 1 -> equal 1/3 each
+        assert c["hhi"] == pytest.approx(1.0 / 3.0)
+        # equal weights -> minimal HHI -> normalized ~ 0.0
+        assert c["hhi_normalized"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_no_returns_block_without_history(self, portfolio, prices):
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        assert "returns" not in stats
+
+    def test_returns_block_with_history(self, portfolio, prices):
+        portfolio.record_value(prices)
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        assert "returns" in stats
+
+
+# ── alloc.__main__ entry point (issue #101) ────────────────────────
+
+class TestMainEntryPoint:
+    """Complementary coverage for the ``python -m alloc`` entry point.
+
+    Note: the "zero coverage" claim in issue #101 is stale — ``__main__``
+    is already exercised by ``tests/test_cli.py::TestMainModule`` and
+    ``tests/test_actor_critic.py::TestMainModule``.  These tests add a
+    behavioural check that the entry point delegates to ``alloc.cli.main``
+    and propagates its exit code.
+    """
+
+    def test_main_is_cli_main(self):
+        from alloc.__main__ import main as entry
+        from alloc.cli import main as cli_main
+        assert entry is cli_main
+
+    def test_main_propagates_exit_code(self):
+        from alloc.__main__ import main
+        # --help short-circuits with exit code 0
+        assert main(["--help"]) == 0

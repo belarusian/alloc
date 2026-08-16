@@ -40,6 +40,8 @@ class Portfolio:
         self.cash = float(initial_cash)
         self.transaction_cost = float(transaction_cost)
         self.shares_held: dict[str, float] = {t: 0.0 for t in self.tickers}
+        # Value history: one entry per recorded valuation (seeded with initial cash).
+        self.portfolio_values: list[float] = [float(initial_cash)]
 
     # -- valuation --------------------------------------------------
 
@@ -194,6 +196,183 @@ class Portfolio:
             "current_allocation": current_alloc,
             "target_allocation": target_allocation,
         }
+
+
+    # -- value history ----------------------------------------------
+
+    def record_value(self, prices: dict[str, float]) -> float:
+        """Append the current portfolio value to :attr:`portfolio_values`.
+
+        Call this once per valuation step (e.g. after each day's trades)
+        so that :meth:`calculate_returns` has a series to analyse.
+
+        Parameters
+        ----------
+        prices : dict
+            Current price per ticker.
+
+        Returns
+        -------
+        float
+            The value that was recorded.
+        """
+        value = self.get_portfolio_value(prices)
+        self.portfolio_values.append(value)
+        return value
+
+    # -- returns analysis -------------------------------------------
+
+    def calculate_returns(self, lookback: int | None = None) -> dict[str, Any]:
+        """Compute return metrics from :attr:`portfolio_values`.
+
+        Metrics
+        -------
+        * ``daily_returns`` — per-period simple returns (length = n-1).
+        * ``cumulative_return`` — total growth over the window.
+        * ``annualized_return`` — geometric annualisation at 252 periods/yr.
+        * ``sharpe_ratio`` — annualised, risk-free rate 2% (daily rf = 0.02/252).
+        * ``max_drawdown`` — largest peak-to-trough decline (fraction, ≥ 0).
+
+        Parameters
+        ----------
+        lookback : int, optional
+            If given, only the trailing *lookback* values are used.
+
+        Returns
+        -------
+        dict
+            The metrics above.  With fewer than two recorded values every
+            metric is returned at its neutral value (empty list / 0.0).
+        """
+        neutral = {
+            "daily_returns": [],
+            "cumulative_return": 0.0,
+            "annualized_return": 0.0,
+            "sharpe_ratio": 0.0,
+            "max_drawdown": 0.0,
+        }
+        if len(self.portfolio_values) < 2:
+            return neutral
+
+        values = self.portfolio_values
+        if lookback is not None and lookback < len(values):
+            values = values[-lookback:]
+
+        daily_returns = [
+            (values[i] / values[i - 1]) - 1.0
+            for i in range(1, len(values))
+            if values[i - 1] > 0
+        ]
+
+        cumulative_return = (values[-1] / values[0]) - 1.0 if values[0] > 0 else 0.0
+
+        # Annualised return (geometric, 252 periods/yr)
+        if daily_returns:
+            avg_daily = sum(daily_returns) / len(daily_returns)
+            annualized_return = (1.0 + avg_daily) ** 252 - 1.0
+        else:
+            avg_daily = 0.0
+            annualized_return = 0.0
+
+        # Sharpe ratio (rf = 2% annual)
+        if len(daily_returns) > 1:
+            daily_std = float(np.std(daily_returns))
+            rf_daily = 0.02 / 252.0
+            sharpe_ratio = (
+                ((avg_daily - rf_daily) / daily_std) * (252.0 ** 0.5)
+                if daily_std > 0
+                else 0.0
+            )
+        else:
+            sharpe_ratio = 0.0
+
+        # Maximum drawdown
+        peak = values[0]
+        max_drawdown = 0.0
+        for value in values:
+            peak = max(peak, value)
+            if peak > 0:
+                dd = (peak - value) / peak
+                max_drawdown = max(max_drawdown, dd)
+
+        return {
+            "daily_returns": daily_returns,
+            "cumulative_return": cumulative_return,
+            "annualized_return": annualized_return,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown": max_drawdown,
+        }
+
+    # -- portfolio statistics ---------------------------------------
+
+    def calculate_portfolio_statistics(self, prices: dict[str, float]) -> dict[str, Any]:
+        """Report per-position detail and a concentration summary.
+
+        Parameters
+        ----------
+        prices : dict
+            Current price per ticker.
+
+        Returns
+        -------
+        dict
+            ``portfolio_value``, ``cash``, ``cash_allocation``, ``positions``
+            (per-ticker shares/price/value/allocation), and ``concentration``
+            with the Herfindahl-Hirschman index (raw + normalised) and the
+            number of assets held.  A ``returns`` block is included when at
+            least two values have been recorded.
+        """
+        portfolio_value = self.get_portfolio_value(prices)
+        allocation = self.get_allocation(prices)
+
+        positions: dict[str, dict[str, float]] = {}
+        for t in self.tickers:
+            if t in prices:
+                positions[t] = {
+                    "shares": self.shares_held.get(t, 0.0),
+                    "price": prices[t],
+                    "value": self.shares_held.get(t, 0.0) * prices[t],
+                    "allocation": allocation.get(t, 0.0),
+                }
+
+        # HHI over non-cash positions with a positive allocation.
+        # The non-cash weights are renormalised to sum to 1 so the index
+        # is well-defined regardless of the cash position: HHI then lies in
+        # [1/n, 1] and the normalised form in [0, 1] (0 = equal, 1 = single).
+        non_cash = [
+            allocation[t]
+            for t in self.tickers
+            if allocation.get(t, 0.0) > 0
+        ]
+        if non_cash:
+            total_nc = sum(non_cash)
+            weights = [w / total_nc for w in non_cash] if total_nc > 0 else []
+            hhi = float(np.sum(np.square(weights)))
+            n = len(weights)
+            if n > 1:
+                hhi_normalized = (hhi - (1.0 / n)) / (1.0 - (1.0 / n))
+            else:
+                hhi_normalized = 1.0
+        else:
+            hhi = 0.0
+            hhi_normalized = 0.0
+
+        stats: dict[str, Any] = {
+            "portfolio_value": portfolio_value,
+            "cash": self.cash,
+            "cash_allocation": allocation.get("cash", 0.0),
+            "positions": positions,
+            "concentration": {
+                "hhi": hhi,
+                "hhi_normalized": hhi_normalized,
+                "num_assets_held": len(non_cash),
+            },
+        }
+
+        if len(self.portfolio_values) > 1:
+            stats["returns"] = self.calculate_returns()
+
+        return stats
 
 
 # ── Reward ──────────────────────────────────────────────────────────
