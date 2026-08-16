@@ -131,15 +131,17 @@ def cached(cache_type: str) -> Callable:
     """
 
     def decorator(func: Callable) -> Callable:
-        cache = DiskCache(
-            cache_dir=get_settings().cache_dir,
-            enabled=get_settings().cache_enabled,
-        )
-
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Resolve settings per call so that changes to the singleton
+            # (e.g. cache_enabled toggled in tests) are respected.
+            settings = get_settings()
+            cache = DiskCache(
+                cache_dir=settings.cache_dir,
+                enabled=settings.cache_enabled,
+            )
             key = cache._make_key(func.__name__, args, tuple(sorted(kwargs.items())))
-            ttl = get_settings().get_cache_ttl(cache_type)
+            ttl = settings.get_cache_ttl(cache_type)
 
             # Try cache first
             cached_value = cache.get(key, ttl)
