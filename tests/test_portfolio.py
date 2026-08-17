@@ -530,6 +530,34 @@ class TestPortfolioStatistics:
         stats = portfolio.calculate_portfolio_statistics(prices)
         assert "returns" in stats
 
+    def test_hhi_normalized_bounded_cash_heavy(self, portfolio, prices):
+        """issue #112: hhi_normalized stays in [0, 1] for a cash-heavy
+        portfolio.
+
+        The seed reference squares the *raw* non-cash fractions (which sum to
+        well below 1.0 when cash dominates), so its normalised HHI can go
+        negative.  Our renormalised form must remain a valid concentration
+        measure in [0, 1].
+        """
+        # Two modest positions against a large cash balance.
+        portfolio.shares_held["AAPL"] = 100.0        # 15_000
+        portfolio.shares_held["MSFT"] = 15_000.0 / 300.0  # 15_000
+        # cash stays at 100_000 -> total 130_000, cash ~77%.
+        stats = portfolio.calculate_portfolio_statistics(prices)
+        c = stats["concentration"]
+        assert c["num_assets_held"] == 2
+        assert 0.0 <= c["hhi_normalized"] <= 1.0
+        # Equal non-cash weights -> minimal concentration.
+        assert c["hhi_normalized"] == pytest.approx(0.0, abs=1e-9)
+        # Raw-fraction HHI (the seed's approach) would be negative here.
+        raw = [
+            stats["positions"]["AAPL"]["allocation"],
+            stats["positions"]["MSFT"]["allocation"],
+        ]
+        raw_hhi = sum(w * w for w in raw)
+        raw_normalized = (raw_hhi - 0.5) / (1.0 - 0.5)
+        assert raw_normalized < 0.0
+
 
 # ── alloc.__main__ entry point (issue #101) ────────────────────────
 

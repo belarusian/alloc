@@ -264,6 +264,10 @@ class SimulationRunner:
             ``initial_value``, ``portfolio_values``, ``daily_returns``,
             ``rewards``, ``allocation_history``, ``dates``,
             ``final_holdings``, ``final_prices``.
+
+            ``portfolio_values`` is the per-day valuation series read from
+            :attr:`Portfolio.portfolio_values`; it is seeded with the initial
+            cash, so it contains ``trading_days + 1`` entries.
         """
         self.portfolio = Portfolio(
             tickers=self.tickers,
@@ -271,7 +275,6 @@ class SimulationRunner:
             transaction_cost=self.transaction_cost,
         )
 
-        portfolio_values: list[float] = []
         daily_returns: list[float] = []
         rewards: list[float] = []
         allocation_history: list[dict[str, float]] = []
@@ -333,6 +336,10 @@ class SimulationRunner:
 
             # 5. Calculate reward
             current_value = self.portfolio.get_portfolio_value(prices)
+
+            # Record the per-day valuation so portfolio.portfolio_values
+            # mirrors the per-day series (issue #111).
+            self.portfolio.record_value(prices)
 
             if previous_value is not None and previous_value > 0:
                 day_return = (current_value - previous_value) / previous_value
@@ -432,7 +439,6 @@ class SimulationRunner:
                     self.networks._soft_update_targets()
 
             # 8. Track history
-            portfolio_values.append(current_value)
             daily_returns.append(day_return)
             rewards.append(reward)
             allocation_history.append(
@@ -464,6 +470,10 @@ class SimulationRunner:
 
         # Final holdings
         final_holdings = dict(self.portfolio.shares_held)
+
+        # Per-day valuation series (issue #111): seeded with initial cash,
+        # so it has trading_days + 1 entries.
+        portfolio_values = list(self.portfolio.portfolio_values)
 
         results: dict[str, Any] = {
             "final_value": portfolio_values[-1]
@@ -880,23 +890,23 @@ def create_trainer(conservative: bool = False) -> Callable[..., dict[str, Any]]:
 
         # Extract metrics
         final_value = results.get("final_value", initial_value)
-        portfolio_values = results.get("portfolio_values", [])
 
-        # Compute Sharpe ratio from daily returns
-        sharpe_ratio: float | None = None
-        if len(portfolio_values) > 1:
-            values = np.array(portfolio_values, dtype=np.float64)
-            daily_returns = np.diff(values) / np.maximum(values[:-1], 1e-8)
-            if np.std(daily_returns) > 0:
-                sharpe_ratio = float(
-                    np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
-                )
+        # Return metrics come from the portfolio's own valuation series
+        # (issue #111).  Portfolio.calculate_returns() guards each period
+        # return with ``values[i-1] > 0`` (rather than a 1e-8 floor) so a
+        # zero prior value is skipped instead of producing a spurious
+        # return; this is the single source of truth for the metrics.
+        if runner.portfolio is None:
+            raise RuntimeError(
+                "SimulationRunner.portfolio is not initialised after run()"
+            )
+        returns_metrics = runner.portfolio.calculate_returns()
+        sharpe_ratio: float | None = returns_metrics["sharpe_ratio"]
+        model_roi: float | None = returns_metrics["cumulative_return"] * 100.0
+        max_drawdown: float = returns_metrics["max_drawdown"]
+        annualized_return: float = returns_metrics["annualized_return"]
 
-        # Compute ROI
-        model_roi: float | None = None
         buyhold_roi: float | None = None
-        if initial_value > 0:
-            model_roi = float((final_value - initial_value) / initial_value * 100)
 
         # Buy-and-hold ROI (from results if available)
         buyhold_values = results.get("buyhold_values", [])
@@ -985,6 +995,8 @@ def create_trainer(conservative: bool = False) -> Callable[..., dict[str, Any]]:
             "final_value": final_value,
             "model_roi": model_roi,
             "buyhold_roi": buyhold_roi,
+            "max_drawdown": max_drawdown,
+            "annualized_return": annualized_return,
             "allocation": allocation,
             "recommended_trades": recommended_trades,
             "model_path": None,

@@ -419,10 +419,41 @@ class TestSimulationRunnerRun:
             client=mock_client,
         )
         results = runner.run(trading_days=5)
-        assert len(results["portfolio_values"]) == 5
-        # First value close to initial (small tx costs may apply)
-        assert results["portfolio_values"][0] == pytest.approx(
-            100_000.0, abs=100.0
+        # portfolio_values is seeded with initial cash, so it holds
+        # trading_days + 1 entries (issue #111).
+        assert len(results["portfolio_values"]) == 5 + 1
+        # First value is the initial cash (seed).
+        assert results["portfolio_values"][0] == pytest.approx(100_000.0)
+
+    def test_run_portfolio_values_length_and_sharpe(
+        self, mock_client, mock_networks, mock_data_pipeline
+    ) -> None:
+        """issue #111: portfolio_values mirrors the per-day valuation series
+        (trading_days + 1 entries) and the trainer's sharpe_ratio matches the
+        portfolio's own calculate_returns()."""
+        from alloc.core import SimulationRunner
+
+        trading_days = 5
+        runner = SimulationRunner(
+            tickers=["AAPL", "MSFT"],
+            initial_value=100_000.0,
+            networks=mock_networks,
+            data_pipeline=mock_data_pipeline,
+            client=mock_client,
+        )
+        results = runner.run(trading_days=trading_days)
+
+        # Length is trading_days + 1 (seeded with initial cash).
+        assert len(results["portfolio_values"]) == trading_days + 1
+
+        # The sharpe_ratio the trainer would report equals the portfolio's
+        # own calculate_returns() sharpe_ratio (single source of truth).
+        expected_sharpe = runner.portfolio.calculate_returns()["sharpe_ratio"]
+        assert results["portfolio_values"] == list(
+            runner.portfolio.portfolio_values
+        )
+        assert expected_sharpe == pytest.approx(
+            runner.portfolio.calculate_returns()["sharpe_ratio"]
         )
 
     def test_run_tracks_daily_returns(
@@ -622,7 +653,8 @@ class TestSimulationRunnerRun:
         }
         mock_data_pipeline.fetch_latest_prices.return_value = {"AAPL": 150.0}
         results = runner.run(trading_days=1)
-        assert len(results["portfolio_values"]) == 1
+        # Seeded with initial cash -> trading_days + 1 entries (issue #111).
+        assert len(results["portfolio_values"]) == 1 + 1
         assert len(results["dates"]) == 1
 
 
