@@ -4,6 +4,22 @@ Provides :class:`Portfolio` for tracking holdings, executing trades with
 transaction costs and shortfall scaling, and
 :func:`calculate_portfolio_reward` for computing a composite reward signal
 combining return, risk, transaction costs, diversification, and concentration.
+
+HHI note (issue #112)
+---------------------
+The concentration index reported by
+:meth:`Portfolio.calculate_portfolio_statistics` is computed on the
+*renormalised non-cash* weights: the per-ticker allocations are divided by
+their sum so they total 1.0 before squaring.  This keeps the Herfindahl–
+Hirschman index well-defined and bounded in ``[1/n, 1]`` (normalised form in
+``[0, 1]``) regardless of how much cash the portfolio holds.
+
+This deliberately differs from the seed reference, which squares the raw
+non-cash fractions without renormalising.  In a cash-heavy portfolio those raw
+fractions sum to well below 1.0, so the seed's normalised HHI can fall below
+zero (and is not a valid concentration measure).  The two values are therefore
+not directly comparable; the renormalised form used here is the one that stays
+in ``[0, 1]``.
 """
 
 from __future__ import annotations
