@@ -48,7 +48,10 @@ class ReplayBuffer:
     """
 
     def __init__(
-        self, capacity: int, rng: np.random.Generator | None = None
+        self,
+        capacity: int,
+        rng: np.random.Generator | None = None,
+        log_interval: int = 1000,
     ) -> None:
         """Initialise the buffer with *capacity* slots.
 
@@ -59,9 +62,14 @@ class ReplayBuffer:
         rng : np.random.Generator, optional
             NumPy random generator for reproducible sampling.
             Defaults to ``np.random.default_rng()``.
+        log_interval : int, optional
+            Emit a DEBUG overflow log every *log_interval* overwrites
+            (default ``1000``).  Must be ``>= 1``.
         """
         if capacity <= 0:
             raise ValueError(f"capacity must be > 0, got {capacity}")
+        if log_interval < 1:
+            raise ValueError(f"log_interval must be >= 1, got {log_interval}")
         self._buffer: deque[
             tuple[np.ndarray, np.ndarray, float, np.ndarray]
         ] = deque(maxlen=capacity)
@@ -69,6 +77,8 @@ class ReplayBuffer:
         self.rng: np.random.Generator = (
             rng if rng is not None else np.random.default_rng()
         )
+        self._overwrite_count: int = 0
+        self._log_interval: int = log_interval
         logger.info("ReplayBuffer initialised with capacity=%d", capacity)
 
     def add(
@@ -92,10 +102,13 @@ class ReplayBuffer:
             Observation at time *t+1*.
         """
         if len(self._buffer) == self._capacity:
-            logger.debug(
-                "ReplayBuffer full (capacity=%d), overwriting oldest entry",
-                self._capacity,
-            )
+            self._overwrite_count += 1
+            if self._overwrite_count % self._log_interval == 0:
+                logger.debug(
+                    "ReplayBuffer full (capacity=%d), %d total overwrites",
+                    self._capacity,
+                    self._overwrite_count,
+                )
         self._buffer.append((state, action, float(reward), next_state))
 
     def sample(

@@ -208,14 +208,14 @@ class TestReplayBufferRng:
 
 
 class TestReplayBufferDebugLogging:
-    """Tests for TICKET-031: DEBUG logging when buffer is full."""
+    """Tests for TICKET-031: counter-based DEBUG logging on overflow."""
 
     def test_debug_log_when_overwriting(self, caplog) -> None:
-        """A DEBUG message should be emitted when the buffer is full."""
+        """A DEBUG message is emitted when the counter hits the interval."""
         import logging
 
         caplog.set_level(logging.DEBUG)
-        buf = ReplayBuffer(capacity=3)
+        buf = ReplayBuffer(capacity=3, log_interval=1)
         for i in range(3):
             buf.add(
                 np.array([float(i)]),
@@ -223,25 +223,24 @@ class TestReplayBufferDebugLogging:
                 float(i),
                 np.array([float(i + 1)]),
             )
-        # Buffer is now full; next add should trigger debug log
+        # Buffer is now full; next add is the first overwrite
         buf.add(
             np.array([99.0]),
             np.array([99.0]),
             99.0,
             np.array([100.0]),
         )
+        assert buf._overwrite_count == 1
         debug_messages = [
-            r for r in caplog.records if r.levelno == logging.DEBUG
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and "total overwrites" in r.message
         ]
-        assert len(debug_messages) >= 1
-        assert "overwriting oldest entry" in debug_messages[-1].message
+        assert len(debug_messages) == 1
 
-    def test_no_debug_log_before_full(self, caplog) -> None:
-        """No DEBUG overwrite message when buffer is not yet full."""
-        import logging
-
-        caplog.set_level(logging.DEBUG)
-        buf = ReplayBuffer(capacity=10)
+    def test_counter_increments_on_every_overwrite(self) -> None:
+        """The overwrite counter tracks every eviction, not just logged ones."""
+        buf = ReplayBuffer(capacity=3, log_interval=1000)
         for i in range(5):
             buf.add(
                 np.array([float(i)]),
@@ -249,10 +248,52 @@ class TestReplayBufferDebugLogging:
                 float(i),
                 np.array([float(i + 1)]),
             )
+        # 5 adds into a capacity-3 buffer -> 2 overwrites
+        assert buf._overwrite_count == 2
+
+    def test_no_log_below_interval(self, caplog) -> None:
+        """No DEBUG overflow log is emitted below the configured interval."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        buf = ReplayBuffer(capacity=3)  # default log_interval=1000
+        for i in range(5):
+            buf.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+        assert buf._overwrite_count == 2
         debug_messages = [
             r
             for r in caplog.records
-            if r.levelno == logging.DEBUG
-            and "overwriting" in r.message
+            if r.levelno == logging.DEBUG and "total overwrites" in r.message
         ]
         assert len(debug_messages) == 0
+
+    def test_no_debug_log_before_full(self, caplog) -> None:
+        """No DEBUG overwrite message when buffer is not yet full."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        buf = ReplayBuffer(capacity=10, log_interval=1)
+        for i in range(5):
+            buf.add(
+                np.array([float(i)]),
+                np.array([float(i)]),
+                float(i),
+                np.array([float(i + 1)]),
+            )
+        assert buf._overwrite_count == 0
+        debug_messages = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and "total overwrites" in r.message
+        ]
+        assert len(debug_messages) == 0
+
+    def test_invalid_log_interval_raises(self) -> None:
+        """log_interval < 1 is rejected at construction."""
+        with pytest.raises(ValueError):
+            ReplayBuffer(capacity=3, log_interval=0)
