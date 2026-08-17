@@ -278,6 +278,118 @@ class TestParseArgs:
 
 
 # ---------------------------------------------------------------------------
+# Rebalance CLI (issue #118)
+# ---------------------------------------------------------------------------
+
+
+class TestRebalanceCli:
+    """Tests for the --rebalance CLI mode and _parse_positions."""
+
+    def test_rebalance_mode_parses(self) -> None:
+        from alloc.core import parse_args
+
+        args = parse_args(
+            ["--rebalance", "--tickers", "AAPL", "MSFT",
+             "--positions", "AAPL:10", "MSFT:5"]
+        )
+        assert args.rebalance is True
+        assert args.backtest is False
+        assert args.predict is False
+        assert args.positions == ["AAPL:10", "MSFT:5"]
+
+    def test_rebalance_mutually_exclusive_with_backtest(self) -> None:
+        from alloc.core import parse_args
+
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["--rebalance", "--backtest", "--tickers", "AAPL"]
+            )
+
+    def test_rebalance_mutually_exclusive_with_predict(self) -> None:
+        from alloc.core import parse_args
+
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["--rebalance", "--predict", "--tickers", "AAPL"]
+            )
+
+    def test_positions_default_none(self) -> None:
+        from alloc.core import parse_args
+
+        args = parse_args(["--rebalance", "--tickers", "AAPL"])
+        assert args.positions is None
+
+    def test_parse_positions_basic(self) -> None:
+        from alloc.core import _parse_positions
+
+        result = _parse_positions(
+            ["AAPL:10", "MSFT:5"], ["AAPL", "MSFT"]
+        )
+        assert result == {"AAPL": 10.0, "MSFT": 5.0}
+
+    def test_parse_positions_defaults_missing_to_zero(self) -> None:
+        from alloc.core import _parse_positions
+
+        result = _parse_positions(["AAPL:10"], ["AAPL", "MSFT", "GOOGL"])
+        assert result == {"AAPL": 10.0, "MSFT": 0.0, "GOOGL": 0.0}
+
+    def test_parse_positions_none_returns_all_zero(self) -> None:
+        from alloc.core import _parse_positions
+
+        result = _parse_positions(None, ["AAPL", "MSFT"])
+        assert result == {"AAPL": 0.0, "MSFT": 0.0}
+
+    def test_parse_positions_uppercases_ticker(self) -> None:
+        from alloc.core import _parse_positions
+
+        result = _parse_positions(["aapl:10"], ["AAPL"])
+        assert result == {"AAPL": 10.0}
+
+    def test_parse_positions_malformed_raises(self) -> None:
+        from alloc.core import _parse_positions
+
+        with pytest.raises(ValueError, match="Malformed"):
+            _parse_positions(["AAPL10"], ["AAPL"])
+
+    def test_parse_positions_unknown_ticker_raises(self) -> None:
+        from alloc.core import _parse_positions
+
+        with pytest.raises(ValueError, match="Unknown ticker"):
+            _parse_positions(["TSLA:10"], ["AAPL"])
+
+    def test_main_rebalance_calls_rebalance_portfolio(self, tmp_path) -> None:
+        """main() in --rebalance mode delegates to rebalance_portfolio."""
+        import alloc.core as core
+
+        fake_result = {
+            "recommended_allocation": {"AAPL": 0.5, "cash": 0.5},
+            "recommended_orders": [
+                {"ticker": "AAPL", "action": "buy", "shares": 1.0,
+                 "price": 100.0, "value": 100.0},
+            ],
+            "portfolio_value_before": 1000.0,
+            "portfolio_value_after": 1000.0,
+            "total_transaction_costs": 0.0,
+            "scale_factor": 1.0,
+        }
+        with patch.object(
+            core, "rebalance_portfolio", return_value=fake_result
+        ) as mock_rebalance:
+            core.main([
+                "--rebalance",
+                "--tickers", "AAPL",
+                "--positions", "AAPL:10",
+                "--model-path", str(tmp_path),
+            ])
+
+        assert mock_rebalance.called
+        kwargs = mock_rebalance.call_args.kwargs
+        assert kwargs["tickers"] == ["AAPL"]
+        assert kwargs["positions"] == {"AAPL": 10.0}
+        assert kwargs["model_path"] == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # SimulationRunner (TICKET-009)
 # ---------------------------------------------------------------------------
 

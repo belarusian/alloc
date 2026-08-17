@@ -20,6 +20,7 @@ import numpy as np
 from alloc.config.settings import get_settings
 from alloc.lib.cache import DiskCache
 from alloc.lib.client import PolygonClient
+from alloc.lib.rebalance import rebalance_portfolio
 from alloc.models import data as data_module
 from alloc.models.data import StateBuilder
 from alloc.models.networks import ActorCriticNetworks
@@ -503,6 +504,54 @@ class SimulationRunner:
 # ---------------------------------------------------------------------------
 
 
+def _parse_positions(
+    raw: list[str] | None,
+    tickers: list[str],
+) -> dict[str, float]:
+    """Parse ``--positions`` entries into a ``{ticker: shares}`` dict.
+
+    Each entry is ``TICKER:SHARES`` (e.g. ``AAPL:10``).  Tickers not present
+    in the input default to ``0.0`` so the returned dict always covers the
+    full *tickers* universe.
+
+    Parameters
+    ----------
+    raw : list[str] | None
+        Raw ``TICKER:SHARES`` strings from the CLI.
+    tickers : list[str]
+        Full ticker universe.
+
+    Returns
+    -------
+    dict
+        ``{ticker: shares}`` for every ticker in *tickers*.
+
+    Raises
+    ------
+    ValueError
+        If an entry is malformed or references an unknown ticker.
+    """
+    positions: dict[str, float] = {t: 0.0 for t in tickers}
+    if not raw:
+        return positions
+
+    known = set(tickers)
+    for entry in raw:
+        if ":" not in entry:
+            raise ValueError(
+                f"Malformed position {entry!r}; expected TICKER:SHARES"
+            )
+        ticker, _, shares_str = entry.partition(":")
+        ticker = ticker.strip().upper()
+        if ticker not in known:
+            raise ValueError(
+                f"Unknown ticker {ticker!r} in positions; "
+                f"expected one of {sorted(known)}"
+            )
+        positions[ticker] = float(shares_str)
+    return positions
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments.
 
@@ -532,12 +581,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run prediction (forward) simulation",
     )
+    mode_group.add_argument(
+        "--rebalance",
+        action="store_true",
+        help="Compute a live rebalance recommendation from a saved model",
+    )
 
     parser.add_argument(
         "--tickers",
         nargs="+",
         required=True,
         help="Ticker symbols to trade",
+    )
+    parser.add_argument(
+        "--positions",
+        nargs="+",
+        default=None,
+        help=(
+            "Current holdings for --rebalance mode, one per ticker, "
+            "formatted as TICKER:SHARES (e.g. AAPL:10 MSFT:5)"
+        ),
     )
     parser.add_argument(
         "--initial-value",
@@ -652,7 +715,13 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    mode_str = "backtest" if args.backtest else "predict"
+    is_rebalance = getattr(args, "rebalance", False)
+    if is_rebalance:
+        mode_str = "rebalance"
+    elif args.backtest:
+        mode_str = "backtest"
+    else:
+        mode_str = "predict"
     logger.info(
         "alloc starting — mode=%s, tickers=%s", mode_str, args.tickers,
     )
@@ -669,6 +738,41 @@ def main(argv: list[str] | None = None) -> None:
         api_key=settings.polygon_api_key,
         cache=cache,
     )
+
+    # Rebalance mode: compute a live recommendation and exit.
+    if is_rebalance:
+        positions = _parse_positions(
+            getattr(args, "positions", None), args.tickers
+        )
+        result = rebalance_portfolio(
+            model_path=args.model_path,
+            tickers=args.tickers,
+            positions=positions,
+            client=client,
+            n_hourly=5,
+            n_daily=5,
+            n_weekly=5,
+            transaction_cost=args.transaction_cost,
+            initial_value=args.initial_value,
+        )
+        logger.info(
+            "Rebalance: value before=%.2f after=%.2f tx_costs=%.4f scale=%.4f",
+            result["portfolio_value_before"],
+            result["portfolio_value_after"],
+            result["total_transaction_costs"],
+            result["scale_factor"],
+        )
+        for order in result["recommended_orders"]:
+            logger.info(
+                "  %s %s %.4f shares @ %.2f (value %.2f)",
+                order["ticker"],
+                order["action"],
+                order["shares"],
+                order["price"],
+                order["value"],
+            )
+        logger.info("alloc finished")
+        return
 
     # Compute input dimension from tickers
     n_hourly = 5
