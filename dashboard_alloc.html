@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>alloc // HEALTH DASHBOARD</title>
+<style>
+/* ============================================================
+   LIGHT TERMINAL AESTHETIC — inspired by personal-index
+   Background: #fafbfc | Accent: #2d7d46 | Text: #1a1a2e
+   Monospace font, grid cards, section headers
+   ============================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    background: #fafbfc;
+    color: #1a1a2e;
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', Courier, monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+.dashboard {
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 2rem 2rem;
+}
+
+/* ---- HEADER ---- */
+.header {
+    border-bottom: 2px solid #2d7d46;
+    padding-bottom: 1.2rem;
+    margin-bottom: 2.5rem;
+}
+
+.header h1 {
+    font-size: 1.8rem;
+    font-weight: 400;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #2d7d46;
+}
+
+.header .prompt {
+    color: #5a7a6a;
+    font-size: 0.95rem;
+    margin-top: 0.5rem;
+}
+
+.header .prompt::before {
+    content: "> ";
+    color: #2d7d46;
+}
+
+/* ---- SECTION HEADERS ---- */
+.section {
+    margin-bottom: 3rem;
+}
+
+.section-title {
+    font-size: 1.1rem;
+    font-weight: 400;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #2d7d46;
+    border-bottom: 1px solid #d0e0d8;
+    padding-bottom: 0.4rem;
+    margin-bottom: 1.2rem;
+}
+
+.section-title::before {
+    content: "## ";
+    color: #5a7a6a;
+}
+
+/* ---- SURFACE STATS ---- */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.8rem;
+}
+
+.stat-card {
+    border: 1px solid #d0e0d8;
+    padding: 0.9rem;
+    text-align: center;
+    background: #fff;
+    transition: border-color 0.2s;
+}
+
+.stat-card:hover {
+    border-color: #2d7d46;
+}
+
+.stat-value {
+    font-size: 2rem;
+    color: #2d7d46;
+    font-weight: 400;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: #5a7a6a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 0.25rem;
+}
+
+.stat-card.warn .stat-value {
+    color: #c47a20;
+}
+
+.stat-card.err .stat-value {
+    color: #c0392b;
+}
+
+/* ---- SIGNAL SUMMARY ROW ---- */
+.signal-summary {
+    display: flex;
+    gap: 1.2rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.9rem;
+    color: #5a7a6a;
+}
+
+.signal-summary span {
+    color: #2d7d46;
+    font-weight: 600;
+}
+
+/* ---- COMPARISON TABLE ---- */
+.comp-table-wrapper {
+    overflow-x: auto;
+    border: 1px solid #d0e0d8;
+    background: #fff;
+}
+
+.comp-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.comp-table th {
+    background: #f4f9f6;
+    padding: 0.8rem 1rem;
+    text-align: center;
+    font-size: 0.95rem;
+    font-weight: 400;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #2d7d46;
+    border-bottom: 2px solid #d0e0d8;
+}
+
+.comp-table th.comp-label {
+    text-align: left;
+}
+
+.comp-table td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #f0f4f2;
+    font-size: 0.95rem;
+}
+
+.comp-table td.comp-label {
+    color: #5a7a6a;
+    font-weight: 400;
+}
+
+.comp-table td.comp-val {
+    text-align: center;
+    color: #1a1a2e;
+}
+
+.comp-table tr:hover {
+    background: #f9fbfa;
+}
+
+/* ---- MODULE GRID ---- */
+.module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.6rem;
+}
+
+.mod-card {
+    border: 1px solid #d0e0d8;
+    padding: 0.65rem 0.85rem;
+    background: #fff;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.mod-card:hover {
+    background: #f4f9f6;
+    border-color: #2d7d46;
+}
+
+.mod-name {
+    font-size: 0.95rem;
+    color: #2d7d46;
+    margin-bottom: 0.3rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mod-signals {
+    margin-bottom: 0.3rem;
+    min-height: 1.4em;
+}
+
+.mod-status {
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.mod-meta {
+    display: flex;
+    gap: 0.8rem;
+    font-size: 0.78rem;
+    color: #5a7a6a;
+    flex-wrap: wrap;
+}
+
+.mod-meta span::before {
+    color: #8aab9a;
+}
+
+/* ---- SIGNAL BADGES ---- */
+.badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 2px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0.1em 0.1em;
+    white-space: nowrap;
+}
+
+.badge-s1 { background: #fff3cd; color: #856404; }
+.badge-s2 { background: #ffecb5; color: #6d5a00; }
+.badge-s3 { background: #e8e8e8; color: #383d41; }
+.badge-s4 { background: #f8d7da; color: #721c24; }
+
+.clear { color: #2d7d46; font-weight: 600; font-size: 0.82rem; }
+
+/* ---- CONTROLS ---- */
+.controls {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.2rem;
+    flex-wrap: wrap;
+}
+
+.controls input, .controls select {
+    padding: 0.55rem 0.75rem;
+    border: 1px solid #c0d0c8;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    outline: none;
+    background: #fff;
+}
+
+.controls input:focus, .controls select:focus {
+    border-color: #2d7d46;
+}
+
+.controls input { flex: 1; min-width: 220px; }
+
+/* ---- FOOTER ---- */
+.footer {
+    margin-top: 2.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid #d0e0d8;
+    color: #8aab9a;
+    font-size: 0.82rem;
+    text-align: center;
+    letter-spacing: 1px;
+}
+
+/* ---- SCROLLBAR ---- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #fafbfc; }
+::-webkit-scrollbar-thumb { background: #c0d0c8; }
+::-webkit-scrollbar-thumb:hover { background: #8aab9a; }
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 768px) {
+    .dashboard { padding: 1rem; }
+    .header h1 { font-size: 1.3rem; }
+    .stats-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; }
+    .module-grid { grid-template-columns: 1fr; }
+    .signal-summary { flex-wrap: wrap; gap: 0.8rem; }
+}
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+<!-- HEADER -->
+<div class="header">
+    <h1>alloc // HEALTH DASHBOARD</h1>
+    <div class="prompt">codebase projection — 18 modules scanned · 2026-08-14 17:01 UTC</div>
+</div>
+
+<!-- 1. SURFACE STATS -->
+<div class="section">
+    <div class="section-title">Surface Stats</div>
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value">18</div><div class="stat-label">Modules</div></div>
+<div class="stat-card"><div class="stat-value">3,384</div><div class="stat-label">Lines</div></div>
+<div class="stat-card"><div class="stat-value">94</div><div class="stat-label">Functions</div></div>
+<div class="stat-card"><div class="stat-value">18</div><div class="stat-label">Classes</div></div>
+<div class="stat-card"><div class="stat-value">339</div><div class="stat-label">Tests</div></div>
+    </div>
+</div>
+
+<!-- 2. SIGNAL SUMMARY -->
+<div class="section">
+    <div class="section-title">Health Signals</div>
+    <div class="stats-grid">
+        <div class="stat-card warn"><div class="stat-value">7</div><div class="stat-label">No Tests</div></div>
+<div class="stat-card warn"><div class="stat-value">9</div><div class="stat-label">Dead Code</div></div>
+<div class="stat-card warn"><div class="stat-value">18</div><div class="stat-label">Lint Errors</div></div>
+    </div>
+    <div class="signal-summary">
+        <div>S1 No Tests: <span>7</span></div>
+        <div>S2 Oversized: <span>0</span></div>
+        <div>S3 Dead Code: <span>9</span></div>
+        <div>S4 Lint Errors: <span>18</span></div>
+    </div>
+</div>
+
+<!-- 3. COMPARISON (if multiple packages) -->
+
+
+<!-- 4. MODULE MAP -->
+<div class="section">
+    <div class="section-title">alloc — Module Map (18 modules)</div>
+    <div class="controls">
+        <input type="text" id="search" placeholder="Search modules..." oninput="filterModules()">
+        <select id="signalFilter" onchange="filterModules()">
+            <option value="all">All Status</option>
+            <option value="S1">S1 — No Tests</option>
+            <option value="S2">S2 — Oversized</option>
+            <option value="S3">S3 — Dead Code</option>
+            <option value="S4">S4 — Lint Errors</option>
+            <option value="clear">Clear Only</option>
+        </select>
+    </div>
+    <div class="module-grid" id="moduleGrid">
+        <div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.__init__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 2</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.__main__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 13</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.cli</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 11</span><span>LINES: 422</span><span>TESTS: 67</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.config.__init__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 1</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.config.settings</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 5</span><span>LINES: 83</span><span>TESTS: 14</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.core</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 9</span><span>LINES: 787</span><span>TESTS: 38</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.__init__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 1</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.cache</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 10</span><span>LINES: 116</span><span>TESTS: 18</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.client</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 6</span><span>LINES: 99</span><span>TESTS: 15</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.cycle_signals</div><div class="mod-signals"><span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 4</span><span>LINES: 159</span><span>TESTS: 18</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.dashboard</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 2</span><span>FUNCS: 9</span><span>LINES: 267</span><span>TESTS: 26</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.lib.utils</div><div class="mod-signals"><span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 2</span><span>FUNCS: 6</span><span>LINES: 207</span><span>TESTS: 47</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.models.__init__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 1</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.models.data</div><div class="mod-signals"><span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 8</span><span>LINES: 277</span><span>TESTS: 32</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.models.networks</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 4</span><span>FUNCS: 15</span><span>LINES: 386</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.models.portfolio</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 1</span><span>FUNCS: 5</span><span>LINES: 236</span><span>TESTS: 33</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.utils.__init__</div><div class="mod-signals"><span class="badge badge-s1">🧪 no_tests</span> <span class="badge badge-s3">💀 dead_code</span> <span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 0</span><span>FUNCS: 0</span><span>LINES: 14</span><span>TESTS: 0</span></div></div>
+<div class="mod-card" style="border-color: #c0392b;"><div class="mod-name">alloc.utils.workflow</div><div class="mod-signals"><span class="badge badge-s4">🔧 lint_errors(1)</span></div><div class="mod-meta"><span>CLASSES: 4</span><span>FUNCS: 6</span><span>LINES: 313</span><span>TESTS: 31</span></div></div>
+    </div>
+</div>
+
+
+
+<!-- FOOTER -->
+<div class="footer">
+    alloc health dashboard · 18 modules · 3,384 lines · 94 functions
+</div>
+</div>
+
+<script>
+function filterModules() {
+    const query = document.getElementById("search").value.toLowerCase();
+    const signalFilter = document.getElementById("signalFilter").value;
+    const cards = document.querySelectorAll("#moduleGrid .mod-card");
+
+    cards.forEach(card => {
+        const name = card.querySelector(".mod-name").textContent.toLowerCase();
+        const signals = card.querySelector(".mod-signals").textContent;
+        const matchesSearch = name.includes(query);
+
+        let matchesSignal = true;
+        if (signalFilter === "clear") {
+            matchesSignal = signals.includes("clear");
+        } else if (signalFilter !== "all") {
+            matchesSignal = signals.includes(signalFilter);
+        }
+
+        card.style.display = (matchesSearch && matchesSignal) ? "" : "none";
+    });
+}
+</script>
+</body>
+</html>
