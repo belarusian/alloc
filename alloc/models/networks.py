@@ -7,9 +7,11 @@ actor-critic pair for portfolio allocation).
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 from collections import deque
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -307,6 +309,8 @@ class ActorCriticNetworks:
         self.tau = tau
         self.min_cash_allocation = min_cash_allocation
         self.dropout = dropout
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
 
         # --- networks ---
         self.actor = self._build_actor()
@@ -539,6 +543,120 @@ class ActorCriticNetworks:
             allocation = allocation / allocation.sum()
 
         return allocation.astype(np.float64)
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_model(self, directory: str | Path) -> None:
+        """Persist the actor/critic weights and model config to *directory*.
+
+        Writes three files into *directory* (created if it does not exist):
+
+        * ``actor_weights.weights.h5`` — actor network weights.
+        * ``critic_weights.weights.h5`` — critic network weights.
+        * ``model_config.json`` — the constructor parameters needed to
+          rebuild an equivalent :class:`ActorCriticNetworks` instance.
+
+        Parameters
+        ----------
+        directory : str | Path
+            Target directory.  Created (with parents) if missing.
+
+        See Also
+        --------
+        load_model
+            Classmethod that reverses this operation.
+        """
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+
+        self.actor.save_weights(directory / "actor_weights.weights.h5")
+        self.critic.save_weights(directory / "critic_weights.weights.h5")
+
+        config = {
+            "input_dim": self.input_dim,
+            "num_assets": self.num_assets,
+            "min_cash_allocation": self.min_cash_allocation,
+            "dropout": self.dropout,
+            "gamma": self.gamma,
+            "tau": self.tau,
+            "actor_lr": self.actor_lr,
+            "critic_lr": self.critic_lr,
+        }
+        with open(directory / "model_config.json", "w") as fh:
+            json.dump(config, fh, indent=2)
+
+        logger.info("ActorCriticNetworks saved to %s", directory)
+
+    @classmethod
+    def load_model(cls, directory: str | Path) -> "ActorCriticNetworks":
+        """Rebuild an :class:`ActorCriticNetworks` from a saved *directory*.
+
+        Reads ``model_config.json`` to reconstruct the network, then loads
+        the actor/critic weights and re-syncs the target networks so they
+        match the online networks exactly.
+
+        Parameters
+        ----------
+        directory : str | Path
+            Directory produced by :meth:`save_model`.
+
+        Returns
+        -------
+        ActorCriticNetworks
+            A new instance with the persisted weights and configuration.
+
+        Raises
+        ------
+        FileNotFoundError
+            If ``model_config.json`` or either weights file is missing.
+        """
+        directory = Path(directory)
+
+        config_path = directory / "model_config.json"
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"model_config.json not found in {directory!s}; "
+                "cannot load ActorCriticNetworks."
+            )
+
+        actor_path = directory / "actor_weights.weights.h5"
+        critic_path = directory / "critic_weights.weights.h5"
+        if not actor_path.exists():
+            raise FileNotFoundError(
+                f"actor_weights.weights.h5 not found in {directory!s}; "
+                "cannot load ActorCriticNetworks."
+            )
+        if not critic_path.exists():
+            raise FileNotFoundError(
+                f"critic_weights.weights.h5 not found in {directory!s}; "
+                "cannot load ActorCriticNetworks."
+            )
+
+        with open(config_path) as fh:
+            config = json.load(fh)
+
+        networks = cls(
+            input_dim=config["input_dim"],
+            num_assets=config["num_assets"],
+            actor_lr=config.get("actor_lr", 1e-4),
+            critic_lr=config.get("critic_lr", 1e-3),
+            dropout=config.get("dropout", 0.1),
+            gamma=config.get("gamma", 0.99),
+            tau=config.get("tau", 0.005),
+            min_cash_allocation=config.get("min_cash_allocation", 0.0),
+        )
+
+        networks.actor.load_weights(actor_path)
+        networks.critic.load_weights(critic_path)
+
+        # Re-sync target networks so they match the loaded online networks.
+        networks.actor_target.set_weights(networks.actor.get_weights())
+        networks.critic_target.set_weights(networks.critic.get_weights())
+
+        logger.info("ActorCriticNetworks loaded from %s", directory)
+        return networks
 
     # ------------------------------------------------------------------
     # Action sampling

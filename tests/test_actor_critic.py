@@ -590,3 +590,101 @@ class TestMainModule:
         finally:
             sys.argv = old_argv
             sys.stdout = old_stdout
+
+
+# =====================================================================
+# Model persistence round-trip (issue #117)
+# =====================================================================
+
+
+class TestModelPersistence:
+    """Tests for ActorCriticNetworks.save_model / load_model."""
+
+    @pytest.fixture()
+    def networks(self):
+        return ActorCriticNetworks(
+            input_dim=10,
+            num_assets=5,
+            min_cash_allocation=0.05,
+            actor_lr=2e-4,
+            critic_lr=3e-3,
+            seed=42,
+        )
+
+    def test_save_creates_files(self, networks, tmp_path):
+        """save_model writes weights and config into the target directory."""
+        networks.save_model(tmp_path)
+        assert (tmp_path / "model_config.json").exists()
+        assert (tmp_path / "actor_weights.weights.h5").exists()
+        assert (tmp_path / "critic_weights.weights.h5").exists()
+
+    def test_save_creates_missing_directory(self, networks, tmp_path):
+        """save_model creates the target directory if it does not exist."""
+        target = tmp_path / "nested" / "model_dir"
+        networks.save_model(target)
+        assert target.is_dir()
+        assert (target / "model_config.json").exists()
+
+    def test_config_fields_round_trip(self, networks, tmp_path):
+        """All persisted config fields survive a save/load round-trip."""
+        networks.save_model(tmp_path)
+        loaded = ActorCriticNetworks.load_model(tmp_path)
+
+        assert loaded.input_dim == networks.input_dim
+        assert loaded.num_assets == networks.num_assets
+        assert loaded.min_cash_allocation == networks.min_cash_allocation
+        assert loaded.dropout == networks.dropout
+        assert loaded.gamma == networks.gamma
+        assert loaded.tau == networks.tau
+        assert loaded.actor_lr == networks.actor_lr
+        assert loaded.critic_lr == networks.critic_lr
+
+    def test_allocation_round_trip(self, networks, tmp_path):
+        """get_allocation is near-identical before and after a round-trip."""
+        networks.save_model(tmp_path)
+        loaded = ActorCriticNetworks.load_model(tmp_path)
+
+        state = np.random.default_rng(0).standard_normal(10).astype(np.float32)
+        before = networks.get_allocation(state)
+        after = loaded.get_allocation(state)
+
+        np.testing.assert_allclose(before, after, atol=1e-5)
+
+    def test_target_networks_resynced(self, networks, tmp_path):
+        """Target networks match the loaded online networks after load."""
+        networks.save_model(tmp_path)
+        loaded = ActorCriticNetworks.load_model(tmp_path)
+
+        for w1, w2 in zip(
+            loaded.actor.get_weights(), loaded.actor_target.get_weights()
+        ):
+            np.testing.assert_allclose(w1, w2, atol=1e-6)
+        for w1, w2 in zip(
+            loaded.critic.get_weights(), loaded.critic_target.get_weights()
+        ):
+            np.testing.assert_allclose(w1, w2, atol=1e-6)
+
+    def test_load_missing_config_raises(self, tmp_path):
+        """Loading from a directory without model_config.json raises."""
+        with pytest.raises(FileNotFoundError, match="model_config.json"):
+            ActorCriticNetworks.load_model(tmp_path)
+
+    def test_load_missing_actor_weights_raises(self, networks, tmp_path):
+        """Loading with a missing actor weights file raises FileNotFoundError."""
+        networks.save_model(tmp_path)
+        (tmp_path / "actor_weights.weights.h5").unlink()
+        with pytest.raises(FileNotFoundError, match="actor_weights"):
+            ActorCriticNetworks.load_model(tmp_path)
+
+    def test_load_missing_critic_weights_raises(self, networks, tmp_path):
+        """Loading with a missing critic weights file raises FileNotFoundError."""
+        networks.save_model(tmp_path)
+        (tmp_path / "critic_weights.weights.h5").unlink()
+        with pytest.raises(FileNotFoundError, match="critic_weights"):
+            ActorCriticNetworks.load_model(tmp_path)
+
+    def test_load_accepts_str_path(self, networks, tmp_path):
+        """load_model accepts a plain string path (not just Path)."""
+        networks.save_model(tmp_path)
+        loaded = ActorCriticNetworks.load_model(str(tmp_path))
+        assert loaded.actor_lr == networks.actor_lr
