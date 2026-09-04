@@ -1,9 +1,9 @@
 # TICKET-050: ReplayBuffer.add() should use counter-based DEBUG logging on overflow
 
-- **GitHub issue:** #98 (open)
+- **GitHub issue:** #98 (closed)
 - **Original ticket:** TICKET-031
 - **Target module:** `alloc/models/networks.py` — `ReplayBuffer`
-- **Status:** open
+- **Status:** VERIFIED (issue #98 closed; counter-based DEBUG logging + tests present on main, commit 5a2632b)
 
 ## Evidence
 
