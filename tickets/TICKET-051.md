@@ -1,9 +1,9 @@
 # TICKET-051: Add a true closed-loop DDPG training-step integration test
 
-- **GitHub issue:** #100 (open)
+- **GitHub issue:** #100 (closed)
 - **Original ticket:** TICKET-033
 - **Target:** `tests/` (new file `tests/test_ddpg_integration.py`)
-- **Status:** open
+- **Status:** VERIFIED (issue #100 closed; closed-loop DDPG training-step integration test present on main, commit 5a2632b)
 
 ## Evidence
 

@@ -29,3 +29,8 @@ model_comparison_results/
 trajectories/
 MagicMock/
 alloc/lib/*.bak
+
+# generated CLI dashboard artifacts (--publish-dashboard)
+dashboard.html
+dashboard_alloc.html
+dashboard_newtrader.html
