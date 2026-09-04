@@ -2,7 +2,7 @@
 
 - **GitHub issue:** #122
 - **Target:** `tests/test_ddpg_integration.py` (add tests)
-- **Status:** OPEN
+- **Status:** VERIFIED (issue #122 closed; merged on main, commit 966d8eb, PR #123)
 - **Depends on:** TICKET-051 (closed-loop DDPG integration test, VERIFIED)
 
 ## Evidence
